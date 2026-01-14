@@ -1,0 +1,56 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id            String   @id @default(cuid())
+  walletAddress String   @unique
+  privyUserId   String?  @unique
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  transactions Transaction[]
+}
+
+model Transaction {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Payment details
+  walletAddress    String
+  token            String // 'USDC' | 'USDT'
+  tokenAmount      String // Amount in token (e.g., "1.0")
+  ngnAmount        Float
+  exchangeRate     Float
+  paymentTxHash    String?
+
+  // Airtime details
+  phoneNumber      String
+  service          String // 'mtn_vtu' | 'glo_vtu' | 'airtel_vtu' | '9mobile_vtu'
+  airtimeAmount    Int
+  paybetaReference String @unique
+  paybetaTransactionId String?
+
+  // Status tracking
+  status          String // 'pending_payment' | 'payment_received' | 'converting' | 'processing' | 'completed' | 'failed'
+  errorMessage    String?
+
+  // Timestamps
+  createdAt       DateTime @default(now())
+  paymentReceivedAt DateTime?
+  completedAt     DateTime?
+
+  @@index([userId])
+  @@index([walletAddress])
+  @@index([paybetaReference])
+  @@index([status])
+  @@index([createdAt])
+}
