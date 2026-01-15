@@ -72,7 +72,7 @@ export interface CryptoBilzClient {
  */
 function createAxiosInstance(apiKey: string): AxiosInstance {
   const instance = axios.create({
-    baseURL: config.paybeta_api_base_url,
+    baseURL: config.paybeta_base_url,
     timeout: 30000, // 30 seconds
     headers: {
       'Accept': 'application/json',
@@ -292,13 +292,11 @@ export const withLogging = <T>(
   operationName: string
 ): Promise<T> => {
   return new Promise(async (resolve, reject) => {
-    console.log(`[${operationName}] Starting...`);
     const startTime = Date.now();
 
     try {
       const result = await fn();
       const duration = Date.now() - startTime;
-      console.log(`[${operationName}] Completed in ${duration}ms`);
       resolve(result);
     } catch (error) {
       const duration = Date.now() - startTime;

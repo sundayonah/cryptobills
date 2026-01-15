@@ -7,46 +7,63 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 model User {
-  id            String   @id @default(cuid())
-  walletAddress String   @unique
-  privyUserId   String?  @unique
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id            String  @id @default(cuid())
+  walletAddress String  @unique
+  privyUserId   String? @unique
+
+  // Authentication & Provider Info
+  loginProvider String? // 'email' | 'metamask' | 'phantom' | 'wallet_connect' | 'coinbase_wallet' | 'rainbow' | 'trust_wallet' | 'embedded'
+  walletType    String? // 'embedded' | 'external' | 'smart_wallet'
+  email         String?
+
+  // Activity Tracking
+  loginCount   Int       @default(0)
+  lastLoginAt  DateTime?
+  firstLoginAt DateTime?
+
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   transactions Transaction[]
+
+  @@index([loginProvider])
+  @@index([email])
+  @@index([lastLoginAt])
 }
 
 model Transaction {
-  id        String   @id @default(cuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   // Payment details
-  walletAddress    String
-  token            String // 'USDC' | 'USDT'
-  tokenAmount      String // Amount in token (e.g., "1.0")
-  ngnAmount        Float
-  exchangeRate     Float
-  paymentTxHash    String?
+  walletAddress String
+  token         String // 'USDC' | 'USDT'
+  tokenAmount   String // Amount in token (e.g., "1.0")
+  ngnAmount     Float
+  exchangeRate  Float
+  paymentTxHash String?
 
   // Airtime details
-  phoneNumber      String
-  service          String // 'mtn_vtu' | 'glo_vtu' | 'airtel_vtu' | '9mobile_vtu'
-  airtimeAmount    Int
-  paybetaReference String @unique
+  phoneNumber          String
+  service              String // 'mtn_vtu' | 'glo_vtu' | 'airtel_vtu' | '9mobile_vtu'
+  airtimeAmount        Int
+  paybetaReference     String  @unique
   paybetaTransactionId String?
 
   // Status tracking
-  status          String // 'pending_payment' | 'payment_received' | 'converting' | 'processing' | 'completed' | 'failed'
-  errorMessage    String?
+  status       String // 'pending_payment' | 'payment_received' | 'converting' | 'processing' | 'completed' | 'failed'
+  errorMessage String?
 
   // Timestamps
-  createdAt       DateTime @default(now())
+  createdAt         DateTime  @default(now())
   paymentReceivedAt DateTime?
-  completedAt     DateTime?
+  completedAt       DateTime?
 
   @@index([userId])
   @@index([walletAddress])

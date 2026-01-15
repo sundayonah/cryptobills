@@ -33,23 +33,31 @@ export async function POST(request: NextRequest) {
     const ngnAmount = await convertToNGN(validated.tokenAmount, validated.token as SupportedToken);
     const exchangeRate = ngnAmount / parseFloat(validated.tokenAmount);
 
-    // Get or create user
+    // Get or create user (fallback - user should already exist from sync endpoint)
     let user = await prisma.user.findUnique({
       where: { walletAddress: validated.walletAddress },
     });
 
     if (!user) {
+      // Fallback: create user if sync endpoint didn't run (shouldn't happen normally)
+      const now = new Date();
       user = await prisma.user.create({
         data: {
           walletAddress: validated.walletAddress,
           privyUserId: validated.privyUserId,
+          loginCount: 1,
+          firstLoginAt: now,
+          lastLoginAt: now,
         },
       });
-    } else if (validated.privyUserId && !user.privyUserId) {
-      user = await prisma.user.update({
-        where: { id: user.id },
-        data: { privyUserId: validated.privyUserId },
-      });
+    } else {
+      // Update user if privyUserId is missing
+      if (validated.privyUserId && !user.privyUserId) {
+        user = await prisma.user.update({
+          where: { id: user.id },
+          data: { privyUserId: validated.privyUserId },
+        });
+      }
     }
 
     // Generate unique reference

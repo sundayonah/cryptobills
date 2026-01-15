@@ -200,7 +200,7 @@ export interface Config {
     paycrest_rate_api: string;
     fallback_rate: number;
     paybeta_api_key: string;
-    paybeta_api_base_url: string;
+    paybeta_base_url: string;
 }
 
 // ============================================================================

@@ -4,17 +4,84 @@ import { usePrivy, useWallets } from "@privy-io/react-auth";
 import { Button } from "@/components/ui/button";
 import { Wallet, LogOut, Mail, Copy, Check } from "lucide-react";
 import { motion } from "framer-motion";
-import { getWalletAddressFromPrivyUser } from "@/lib/privy-utils";
+import {
+  getWalletAddressFromPrivyUser,
+  getLoginProviderFromPrivyUser,
+  getWalletTypeFromPrivyUser,
+  getEmailFromPrivyUser,
+} from "@/lib/privy-utils";
 import { NetworksDropdown } from "@/components/networks-dropdown";
 import { copyToClipboard } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 
 export function Header() {
   const { ready, authenticated, login, logout, user } = usePrivy();
   const { wallets } = useWallets();
   const { toast } = useToast();
   const [copied, setCopied] = useState(false);
+  const hasSyncedRef = useRef(false);
+
+  // Sync user to database when they authenticate
+  useEffect(() => {
+    if (!ready || !authenticated || !user || hasSyncedRef.current) {
+      return;
+    }
+
+    const syncUser = async () => {
+      const walletAddress = getWalletAddressFromPrivyUser(user);
+      if (!walletAddress) {
+        return;
+      }
+
+      try {
+        const loginProvider = getLoginProviderFromPrivyUser(user);
+        const walletType = getWalletTypeFromPrivyUser(user);
+        const email = getEmailFromPrivyUser(user);
+
+        const response = await fetch('/api/users/sync', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            walletAddress,
+            privyUserId: user.id,
+            loginProvider,
+            walletType,
+            email,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to sync user');
+        }
+
+        const data = await response.json();
+        hasSyncedRef.current = true;
+
+        // Optionally show a toast for new users
+        // if (data.user?.isNewUser) {
+        //   toast({
+        //     title: "Welcome!",
+        //     description: "Your account has been created",
+        //   });
+        // }
+      } catch (error) {
+        console.error('Failed to sync user:', error);
+        // Don't show error toast to user - this is a background operation
+      }
+    };
+
+    syncUser();
+  }, [ready, authenticated, user, toast]);
+
+  // Reset sync flag when user logs out
+  useEffect(() => {
+    if (!authenticated) {
+      hasSyncedRef.current = false;
+    }
+  }, [authenticated]);
 
   const handleSignIn = () => {
     if (authenticated) {
