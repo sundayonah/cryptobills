@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { TOKEN_CONFIGS, PAYMENT_RECIPIENT_ADDRESS, MIN_AMOUNT, MAX_AMOUNT } from "@/lib/constants";
+import { getWalletAddressFromPrivyUser } from "@/lib/privy-utils";
 import type { SupportedToken, AirtimeService } from "@/types";
 import { motion } from "framer-motion";
 import { Loader2, Send } from "lucide-react";
@@ -156,11 +157,22 @@ export function AirtimeForm() {
 
       if (receipt.status === 1) {
         // Payment confirmed, now purchase airtime
+        const walletAddress = getWalletAddressFromPrivyUser(user);
+        if (!walletAddress) {
+          toast({
+            title: "Error",
+            description: "Could not get wallet address",
+            variant: "destructive",
+          });
+          setIsProcessing(false);
+          return;
+        }
+
         const purchaseResponse = await fetch("/api/airtime/purchase", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            walletAddress: user.wallet.address,
+            walletAddress,
             privyUserId: user.id,
             token: data.token,
             tokenAmount: data.amount,
