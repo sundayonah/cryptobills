@@ -37,3 +37,6 @@ next-env.d.ts
 
 # prisma
 /prisma/migrations
+
+# docs (temporary, to be committed later)
+/docs/ai-voice-assistant-implementation.md
