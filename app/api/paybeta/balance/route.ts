@@ -1,11 +1,11 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { getCryptobilzClient } from '@/lib/paybeta';
 
 /**
  * GET /api/paybeta/balance
  * Check PayBeta wallet balance (server-side only)
  */
-export async function GET(request: NextRequest) {
+export async function GET() {
     try {
         const paybetaClient = getCryptobilzClient();
         const balanceResponse = await paybetaClient.getWalletBalance();
