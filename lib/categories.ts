@@ -21,7 +21,7 @@ export const UTILITY_CATEGORIES: CategoryConfig[] = [
   {
     id: 'data_bundle',
     name: 'Data Bundle',
-    enabled: false,
+    enabled: true,
     apiPath: '/data-bundle',
   },
   {

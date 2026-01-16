@@ -20,6 +20,7 @@ export interface PurchaseRequest {
     bouquet?: string; // For Showmax
     smartCardNumber?: string; // For Cable TV
     customerName?: string; // For Electricity, Cable TV
+    code?: string; // For Data Bundle (bundle code)
 }
 
 // Purchase response interface
@@ -54,11 +55,19 @@ async function purchaseAirtime(request: PurchaseRequest): Promise<PurchaseRespon
  * POST /data-bundle/purchase
  */
 async function purchaseDataBundle(request: PurchaseRequest): Promise<PurchaseResponse> {
+    if (!request.code) {
+        throw new Error('Bundle code is required for data bundle purchase');
+    }
+    if (!request.phoneNumber) {
+        throw new Error('Phone number is required for data bundle purchase');
+    }
+
     const paybeta = getPayBetaClient();
     const response = await paybeta.api.post('/data-bundle/purchase', {
         service: request.service,
         phoneNumber: request.phoneNumber,
         amount: request.amount,
+        code: request.code,
         reference: request.reference,
     });
     return response.data;

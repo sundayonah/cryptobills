@@ -51,6 +51,7 @@ model Transaction {
   category    String // 'airtime', 'data_bundle', 'cable_tv', 'electricity', 'showmax', 'gaming'
   service     String // Provider/service code (e.g., 'mtn_vtu', 'glo_vtu', etc.)
   serviceName String? // Human-readable service name (e.g., 'MTN VTU', 'GLO VTU')
+  bundleCode  String? // Bundle code for data bundle (e.g., 'MTN_100_MB_DAILY_DATA_BUNDLE')
 
   // Recipient details (varies by category)
   phoneNumber   String? // For airtime, data bundle

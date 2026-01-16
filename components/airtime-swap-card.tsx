@@ -26,7 +26,7 @@ import { SUPPORTED_NETWORKS } from "@/lib/networks";
 import { useWallets } from "@privy-io/react-auth";
 import { processWalletPayment, getWalletChainId, waitForTransactionConfirmation } from "@/lib/wallet-payment";
 import { convertToNGN } from "@/lib/exchange";
-import type { SupportedToken, AirtimeService, AirtimeProvider, UtilityBillCategory } from "@/types";
+import type { SupportedToken, AirtimeService, AirtimeProvider, UtilityBillCategory, DataBundleService, DataBundlePackage } from "@/types";
 import { motion } from "framer-motion";
 import { Loader2, ArrowDown, Wallet } from "lucide-react";
 import { Loading, LoadingSpinner, AirtimeFormSkeleton } from "@/components/ui/loading";
@@ -42,7 +42,8 @@ const airtimeSchema = z.object({
     { message: `Amount must be between $${config.min_amount} and $${config.max_amount}` }
   ),
   phoneNumber: z.string().min(1, "Account/Phone number is required"),
-  service: z.enum(["mtn_vtu", "glo_vtu", "airtel_vtu", "9mobile_vtu"]),
+  service: z.enum(["mtn_vtu", "glo_vtu", "airtel_vtu", "9mobile_vtu", "mtn_data", "glo_data", "airtel_data", "9mobile_data"]),
+  bundleCode: z.string().optional(), // Required for data bundle
 });
 
 type AirtimeFormData = z.infer<typeof airtimeSchema>;
@@ -61,9 +62,12 @@ export function AirtimeSwapCard() {
   const [exchangeRate, setExchangeRate] = useState<ExchangeRate | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [ngnAmount, setNgnAmount] = useState<number | null>(null);
-  const [providers, setProviders] = useState<Array<AirtimeProvider & { service: AirtimeService }>>([]);
+  const [providers, setProviders] = useState<Array<AirtimeProvider & { service: AirtimeService | DataBundleService }>>([]);
   const [loadingProviders, setLoadingProviders] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState<UtilityBillCategory>("airtime");
+  const [bundles, setBundles] = useState<DataBundlePackage[]>([]);
+  const [loadingBundles, setLoadingBundles] = useState(false);
+  const [selectedBundle, setSelectedBundle] = useState<string>("");
 
   const {
     register,
@@ -77,6 +81,7 @@ export function AirtimeSwapCard() {
       token: "USDC",
       amount: "",
       service: "mtn_vtu",
+      bundleCode: "",
     },
   });
 
@@ -113,6 +118,23 @@ export function AirtimeSwapCard() {
             // Set default service if available
             if (processed.length > 0) {
               setValue("service", processed[0].service);
+            } else {
+              setProviders([]);
+            }
+          } else if (selectedCategory === "data_bundle") {
+            // For data bundle, process providers that have a slug field
+            const processed = data.data
+              .filter((provider: any) => provider.status !== false && provider.slug)
+              .map((provider: any) => ({
+                ...provider,
+                service: provider.slug as DataBundleService,
+              }));
+            setProviders(processed as Array<AirtimeProvider & { service: DataBundleService }>);
+            // Set default service if available
+            if (processed.length > 0) {
+              setValue("service", processed[0].service);
+              // Fetch bundles for the first provider
+              fetchBundles(processed[0].service as DataBundleService);
             } else {
               setProviders([]);
             }
@@ -166,6 +188,73 @@ export function AirtimeSwapCard() {
     fetchProviders();
   }, [selectedCategory, setValue, toast]);
 
+  // Fetch bundles when data bundle provider changes
+  const fetchBundles = async (service: DataBundleService) => {
+    if (selectedCategory !== "data_bundle") {
+      setBundles([]);
+      setSelectedBundle("");
+      setValue("bundleCode", "");
+      return;
+    }
+
+    setLoadingBundles(true);
+    try {
+      const response = await fetch(`/api/data-bundle/list?service=${service}`);
+      const data = await response.json();
+
+      if (response.ok && data.status === "successful" && data.data?.packages) {
+        setBundles(data.data.packages);
+        // Auto-select first bundle if available
+        if (data.data.packages.length > 0) {
+          setSelectedBundle(data.data.packages[0].code);
+          setValue("bundleCode", data.data.packages[0].code);
+          // Set amount to bundle price in NGN (convert from string to number)
+          const bundlePrice = parseFloat(data.data.packages[0].price);
+          if (!isNaN(bundlePrice) && bundlePrice > 0 && exchangeRate) {
+            // Convert NGN to USDC/USDT (approximate, will be recalculated)
+            // This is just a starting point, user can adjust
+            const rate = selectedToken === "USDC" ? exchangeRate.usdcToNgn : exchangeRate.usdtToNgn;
+            const estimatedTokenAmount = (bundlePrice / rate).toFixed(2);
+            setValue("amount", estimatedTokenAmount);
+          }
+        }
+      } else {
+        setBundles([]);
+        setSelectedBundle("");
+        setValue("bundleCode", "");
+        toast({
+          title: "Failed to load bundles",
+          description: data.message || "Unable to fetch data bundle packages.",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error("Error fetching bundles:", error);
+      setBundles([]);
+      setSelectedBundle("");
+      setValue("bundleCode", "");
+      toast({
+        title: "Error",
+        description: "Failed to load data bundle packages. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoadingBundles(false);
+    }
+  };
+
+  // Watch for service changes in data bundle category
+  useEffect(() => {
+    if (selectedCategory === "data_bundle" && selectedService) {
+      fetchBundles(selectedService as DataBundleService);
+    } else {
+      setBundles([]);
+      setSelectedBundle("");
+      setValue("bundleCode", "");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedService, selectedCategory]);
+
   // Fetch exchange rate
   useEffect(() => {
     const fetchRate = async () => {
@@ -209,11 +298,21 @@ export function AirtimeSwapCard() {
       return;
     }
 
-    // Validate phone number for airtime
-    if (selectedCategory === "airtime" && !/^0\d{10}$/.test(data.phoneNumber)) {
+    // Validate phone number for airtime and data bundle
+    if ((selectedCategory === "airtime" || selectedCategory === "data_bundle") && !/^0\d{10}$/.test(data.phoneNumber)) {
       toast({
         title: "Invalid Phone Number",
         description: "Please enter a valid Nigerian phone number (e.g., 08123456789)",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Validate bundle code for data bundle
+    if (selectedCategory === "data_bundle" && !data.bundleCode) {
+      toast({
+        title: "Bundle Required",
+        description: "Please select a data bundle",
         variant: "destructive",
       });
       return;
@@ -270,11 +369,11 @@ export function AirtimeSwapCard() {
       return;
     }
 
-    // Only process airtime for now
-    if (selectedCategory !== "airtime") {
+    // Validate category is supported
+    if (selectedCategory !== "airtime" && selectedCategory !== "data_bundle") {
       toast({
         title: "Service Not Available",
-        description: "Only Airtime is currently available. Other services coming soon.",
+        description: "This service is not yet available. Please select Airtime or Data Bundle.",
         variant: "destructive",
       });
       return;
@@ -338,29 +437,29 @@ export function AirtimeSwapCard() {
 
       toast({
         title: "Checking Balance",
-        description: "Verifying PayBeta has sufficient funds...",
+        description: "Verifying Wallet has sufficient funds...",
       });
 
-      // Check PayBeta balance via API route (server-side)
+      // Check Wallet balance via API route (server-side)
       let balanceResponse;
       try {
         const balanceApiResponse = await fetch('/api/paybeta/balance');
         const balanceData = await balanceApiResponse.json();
 
         if (!balanceApiResponse.ok || !balanceData.success) {
-          throw new Error(balanceData.error || 'Failed to check PayBeta balance');
+          throw new Error(balanceData.error || 'Failed to check Wallet balance');
         }
 
         balanceResponse = balanceData;
       } catch (error: any) {
-        throw new Error(`Failed to check PayBeta balance: ${error.message}. Please try again later.`);
+        throw new Error(`Failed to check Wallet balance: ${error.message}. Please try again later.`);
       }
 
       const availableBalance = balanceResponse.data.availableBalance;
 
       if (availableBalance < ngnAmount) {
         throw new Error(
-          `PayBeta has insufficient balance. ` +
+          `Wallet has insufficient balance. ` +
           `Available: ₦${availableBalance.toLocaleString()}, ` +
           `Required: ₦${ngnAmount.toLocaleString()}. ` +
           `Please try again later or contact support.`
@@ -369,7 +468,7 @@ export function AirtimeSwapCard() {
 
       toast({
         title: "Balance Verified",
-        description: `PayBeta balance: ₦${availableBalance.toLocaleString()}`,
+        description: `Checking balance: ₦${availableBalance.toLocaleString()}`,
       });
 
       // ============================================
@@ -420,27 +519,36 @@ export function AirtimeSwapCard() {
       const selectedProvider = providers.find(p => p.service === data.service);
       const serviceName = selectedProvider?.name || data.service;
 
-      // Use category-specific purchase endpoint (currently only airtime is implemented)
+      // Use category-specific purchase endpoint
       const category = UTILITY_CATEGORIES.find(cat => cat.id === selectedCategory);
       const purchaseEndpoint = category?.id === 'airtime'
-        ? "/api/airtime/purchase"  // Next.js API route (not PayBeta)
-        : `/api/${selectedCategory}/purchase`;
+        ? "/api/airtime/purchase"
+        : category?.id === 'data_bundle'
+          ? "/api/data-bundle/purchase"
+          : `/api/${selectedCategory}/purchase`;
+
+      const purchaseBody: any = {
+        walletAddress: walletAddress,
+        privyUserId: user?.id,
+        token: data.token,
+        tokenAmount: data.amount,
+        phoneNumber: data.phoneNumber,
+        service: data.service,
+        serviceName: serviceName,
+        paymentTxHash: txHash,
+        category: selectedCategory,
+        networkChainId: chainIdNum,
+      };
+
+      // Add bundle code for data bundle
+      if (selectedCategory === "data_bundle" && data.bundleCode) {
+        purchaseBody.code = data.bundleCode;
+      }
 
       const purchaseResponse = await fetch(purchaseEndpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          walletAddress: walletAddress,
-          privyUserId: user?.id,
-          token: data.token,
-          tokenAmount: data.amount,
-          phoneNumber: data.phoneNumber,
-          service: data.service,
-          serviceName: serviceName,
-          paymentTxHash: txHash,
-          category: selectedCategory,
-          networkChainId: chainIdNum,
-        }),
+        body: JSON.stringify(purchaseBody),
       });
 
       const purchaseResult = await purchaseResponse.json();
@@ -498,7 +606,10 @@ export function AirtimeSwapCard() {
               // Reset form when category changes
               setValue("amount", "");
               setValue("phoneNumber", "");
-              setValue("service", "mtn_vtu");
+              setValue("service", value === "data_bundle" ? "mtn_data" : "mtn_vtu");
+              setValue("bundleCode", "");
+              setBundles([]);
+              setSelectedBundle("");
             }}
           >
             <SelectTrigger className="w-full h-12 bg-gray-50 border-gray-300 text-gray-900 rounded-xl">
@@ -524,8 +635,8 @@ export function AirtimeSwapCard() {
           </Select>
         </div>
 
-        {/* ProviderSelector - Only show for airtime, right after service type */}
-        {selectedCategory === "airtime" && (
+        {/* ProviderSelector - Show for airtime and data bundle */}
+        {(selectedCategory === "airtime" || selectedCategory === "data_bundle") && (
           <div className="space-y-2">
             <label className="text-sm text-gray-600">Provider</label>
             {loadingProviders ? (
@@ -536,7 +647,12 @@ export function AirtimeSwapCard() {
             ) : (
               <Select
                 value={selectedService}
-                onValueChange={(value) => setValue("service", value as AirtimeService)}
+                onValueChange={(value) => {
+                  setValue("service", value as AirtimeService | DataBundleService);
+                  if (selectedCategory === "data_bundle") {
+                    fetchBundles(value as DataBundleService);
+                  }
+                }}
                 disabled={providers.length === 0 || !UTILITY_CATEGORIES.find(cat => cat.id === selectedCategory)?.enabled}
               >
                 <SelectTrigger className="w-full h-14 bg-purple-600 border-purple-500 text-white rounded-xl hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed">
@@ -546,7 +662,7 @@ export function AirtimeSwapCard() {
                       : "Select provider"
                   }>
                     {(() => {
-                      if (selectedService && providers.length > 0 && selectedCategory === "airtime") {
+                      if (selectedService && providers.length > 0 && (selectedCategory === "airtime" || selectedCategory === "data_bundle")) {
                         const provider = providers.find(p => p.service === selectedService);
                         if (provider) {
                           return (
@@ -562,7 +678,7 @@ export function AirtimeSwapCard() {
                                   e.currentTarget.style.display = 'none';
                                 }}
                               />
-                              <span>{provider.name.replace(' VTU', '')}</span>
+                              <span>{provider.name.replace(' VTU', '').replace(' Data', '')}</span>
                             </div>
                           );
                         }
@@ -590,7 +706,7 @@ export function AirtimeSwapCard() {
                             e.currentTarget.style.display = 'none';
                           }}
                         />
-                        <span>{provider.name.replace(' VTU', '')}</span>
+                        <span>{provider.name.replace(' VTU', '').replace(' Data', '')}</span>
                       </div>
                     </SelectItem>
                   ))}
@@ -603,26 +719,101 @@ export function AirtimeSwapCard() {
           </div>
         )}
 
+        {/* Bundle Selector - Only show for data bundle */}
+        {selectedCategory === "data_bundle" && (
+          <div className="space-y-2">
+            <label className="text-sm text-gray-600">Data Bundle</label>
+            {loadingBundles ? (
+              <div className="w-full h-14 bg-gray-50 border border-gray-200 rounded-xl flex items-center justify-center">
+                <LoadingSpinner size="sm" className="text-gray-600" />
+                <span className="ml-2 text-sm text-gray-600">Loading bundles...</span>
+              </div>
+            ) : bundles.length > 0 ? (
+              <Select
+                value={selectedBundle}
+                onValueChange={(value) => {
+                  setSelectedBundle(value);
+                  setValue("bundleCode", value);
+                  const bundle = bundles.find(b => b.code === value);
+                  if (bundle && exchangeRate) {
+                    // Convert NGN price to token amount (approximate)
+                    const bundlePrice = parseFloat(bundle.price);
+                    if (!isNaN(bundlePrice) && bundlePrice > 0) {
+                      const rate = selectedToken === "USDC" ? exchangeRate.usdcToNgn : exchangeRate.usdtToNgn;
+                      const estimatedTokenAmount = (bundlePrice / rate).toFixed(2);
+                      setValue("amount", estimatedTokenAmount);
+                    }
+                  }
+                }}
+              >
+                <SelectTrigger className="w-full h-14 bg-gray-50 border-gray-300 text-gray-900 rounded-xl hover:bg-gray-100">
+                  <SelectValue placeholder="Select data bundle">
+                    {selectedBundle && bundles.find(b => b.code === selectedBundle) && (
+                      <div className="flex items-center justify-between w-full pr-2 gap-2 min-w-0">
+                        <span className="font-medium text-base truncate">
+                          {bundles.find(b => b.code === selectedBundle)?.description}
+                        </span>
+                        <span className="text-sm font-semibold text-gray-700 whitespace-nowrap flex-shrink-0">
+                          ₦{parseFloat(bundles.find(b => b.code === selectedBundle)?.price || "0").toFixed(2)}
+                        </span>
+                      </div>
+                    )}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent
+                  className="bg-white border-gray-200 max-h-[300px] w-[var(--radix-select-trigger-width)]"
+                  position="popper"
+                  sideOffset={4}
+                >
+                  {bundles.map((bundle) => (
+                    <SelectItem
+                      key={bundle.code}
+                      value={bundle.code}
+                      className="text-gray-900 cursor-pointer hover:bg-gray-50 py-3"
+                    >
+                      <div className="flex items-start justify-between w-full gap-2">
+                        <span className="font-medium text-sm flex-1 break-words leading-tight">{bundle.description}</span>
+                        <span className="text-sm font-semibold text-gray-700 whitespace-nowrap flex-shrink-0 ml-2">
+                          ₦{parseFloat(bundle.price).toFixed(2)}
+                        </span>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <div className="w-full h-14 bg-gray-50 border border-gray-200 rounded-xl flex items-center justify-center">
+                <span className="text-sm text-gray-500">No bundles available</span>
+              </div>
+            )}
+            {!selectedBundle && selectedCategory === "data_bundle" && (
+              <p className="text-sm text-red-600">Please select a data bundle</p>
+            )}
+          </div>
+        )}
+
         {/* Send Section */}
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <label className="text-sm text-gray-600">Send</label>
-            <button
-              type="button"
-              onClick={() => {
-                if (balanceAmount > 0) {
-                  // Format number without trailing zeros
-                  // Convert to string and remove trailing zeros and decimal point if not needed
-                  const formatted = parseFloat(balanceAmount.toFixed(6)).toString();
-                  setValue("amount", formatted);
-                }
-              }}
-              disabled={balanceAmount === 0 || isLoadingBalance}
-              className="text-xs text-gray-500 hover:text-gray-700 underline disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Set maximum balance"
-            >
-              Max
-            </button>
+            {selectedCategory !== "data_bundle" && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (balanceAmount > 0) {
+                    // Format number without trailing zeros
+                    // Convert to string and remove trailing zeros and decimal point if not needed
+                    const formatted = parseFloat(balanceAmount.toFixed(6)).toString();
+                    setValue("amount", formatted);
+                  }
+                }}
+                disabled={balanceAmount === 0 || isLoadingBalance}
+                className="text-xs text-gray-500 hover:text-gray-700 underline disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Set maximum balance"
+              >
+                Max
+              </button>
+            )}
           </div>
           <div className="flex gap-2">
             <Input
@@ -631,7 +822,8 @@ export function AirtimeSwapCard() {
               min={config.min_amount}
               max={config.max_amount}
               placeholder="0"
-              className="flex-1 bg-gray-50 border-gray-300 text-gray-900 text-2xl h-16 rounded-xl"
+              disabled={selectedCategory === "data_bundle"}
+              className="flex-1 bg-gray-50 border-gray-300 text-gray-900 text-2xl h-16 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-gray-100"
               {...register("amount")}
             />
             <Select
@@ -754,7 +946,7 @@ export function AirtimeSwapCard() {
           <div className="space-y-3">
             <div>
               <label className="text-xs text-gray-500 mb-1 block">
-                {selectedCategory === "airtime"
+                {selectedCategory === "airtime" || selectedCategory === "data_bundle"
                   ? "Phone Number"
                   : selectedCategory === "electricity"
                     ? "Meter Number"
@@ -765,7 +957,7 @@ export function AirtimeSwapCard() {
               <Input
                 type="tel"
                 placeholder={
-                  selectedCategory === "airtime"
+                  selectedCategory === "airtime" || selectedCategory === "data_bundle"
                     ? "08123456789"
                     : selectedCategory === "electricity"
                       ? "Enter meter number"
@@ -785,7 +977,31 @@ export function AirtimeSwapCard() {
               <div className="text-center py-3 bg-gray-50 rounded-xl border border-gray-200">
                 <p className="text-sm text-gray-600 mb-1">You will receive</p>
                 <p className="text-xl font-semibold text-gray-900">
-                  ₦{ngnAmount.toLocaleString()} NGN {selectedCategory === "airtime" ? "airtime" : selectedCategory === "data_bundle" ? "data" : selectedCategory === "electricity" ? "electricity" : selectedCategory === "cable_tv" ? "cable subscription" : "credit"}
+                  {(() => {
+                    // For data bundle, extract and show the data size from bundle description
+                    if (selectedCategory === "data_bundle" && selectedBundle) {
+                      const bundle = bundles.find(b => b.code === selectedBundle);
+                      if (bundle) {
+                        // Extract data size from description (e.g., "9MOBILE Daily 50MB" -> "50MB")
+                        // Match patterns like: 50MB, 100MB, 1.2GB, 2GB, etc.
+                        const dataSizeMatch = bundle.description.match(/(\d+(?:\.\d+)?)\s*(MB|GB|TB)/i);
+                        if (dataSizeMatch) {
+                          const size = dataSizeMatch[1];
+                          const unit = dataSizeMatch[2].toUpperCase();
+                          return `${size}${unit} data`;
+                        }
+                        // Fallback: try to extract any size pattern
+                        const fallbackMatch = bundle.description.match(/(\d+(?:\.\d+)?)\s*(MB|GB|TB|mb|gb|tb)/i);
+                        if (fallbackMatch) {
+                          return `${fallbackMatch[1]}${fallbackMatch[2].toUpperCase()} data`;
+                        }
+                        // If no size found, show description
+                        return bundle.description;
+                      }
+                    }
+                    // For other categories, show NGN amount
+                    return `₦${ngnAmount.toLocaleString()} NGN ${selectedCategory === "airtime" ? "airtime" : selectedCategory === "electricity" ? "electricity" : selectedCategory === "cable_tv" ? "cable subscription" : "credit"}`;
+                  })()}
                 </p>
               </div>
             )}
@@ -807,8 +1023,10 @@ export function AirtimeSwapCard() {
               const inputAmount = parseFloat(selectedAmount || "0");
               return isNaN(inputAmount) || inputAmount <= 0 || inputAmount > balanceAmount;
             })() ||
-            // Validate Nigerian phone number format for airtime
-            (selectedCategory === "airtime" && !/^0\d{10}$/.test(phoneNumber || ""))
+            // Validate Nigerian phone number format for airtime and data bundle
+            ((selectedCategory === "airtime" || selectedCategory === "data_bundle") && !/^0\d{10}$/.test(phoneNumber || "")) ||
+            // Validate bundle code for data bundle
+            (selectedCategory === "data_bundle" && !selectedBundle)
           }
           className="w-full h-14 bg-gray-900 hover:bg-gray-800 text-white rounded-xl text-lg font-semibold border border-gray-900 disabled:opacity-50 disabled:cursor-not-allowed"
         >

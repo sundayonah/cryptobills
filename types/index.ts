@@ -90,6 +90,48 @@ export interface AirtimePurchaseResponse {
     };
 }
 
+export type DataBundleService = 'mtn_data' | 'glo_data' | 'airtel_data' | '9mobile_data';
+
+export interface DataBundlePackage {
+    code: string;
+    description: string;
+    price: string;
+}
+
+export interface DataBundleListResponse {
+    status: string;
+    message: string;
+    data?: {
+        packages: DataBundlePackage[];
+    };
+}
+
+export interface DataBundlePurchaseRequest {
+    service: DataBundleService;
+    phoneNumber: string;
+    amount: number;
+    code: string; // Bundle code (e.g., "MTN_100_MB_DAILY_DATA_BUNDLE" or "MT1")
+    reference: string;
+}
+
+export interface DataBundlePurchaseResponse {
+    status: string;
+    message: string;
+    data?: {
+        reference: string;
+        amount: number;
+        chargedAmount: number;
+        commission: number;
+        biller: string;
+        customerId: string;
+        token: null;
+        unit: null;
+        bonusToken: null;
+        transactionDate: string;
+        transactionId: string;
+    };
+}
+
 export interface PayBetaErrorResponse {
     status: string;
     message: string;
