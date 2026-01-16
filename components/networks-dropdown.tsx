@@ -45,16 +45,16 @@ export function NetworksDropdown() {
     let switched = false;
 
     // Check if we're using an embedded wallet - if so, only use Privy's switchChain
-    const isEmbeddedWallet = wallets && wallets.length > 0 &&
+    const isEmbeddedWallet = wallets && wallets.length > 0 && 
       (wallets[0].connectorType === 'embedded' || wallets[0].walletClientType === 'privy');
 
     // Priority 1: For embedded wallets, use Privy's switchChain (avoids external wallet popups)
     if (isEmbeddedWallet && wallets && wallets.length > 0) {
       const wallet = wallets[0];
-      const walletChainId = wallet.chainId
+      const walletChainId = wallet.chainId 
         ? parseInt(wallet.chainId.split(":")[1] || wallet.chainId)
         : null;
-
+      
       if (walletChainId !== network.id) {
         try {
           await wallet.switchChain(network.id);
@@ -70,17 +70,17 @@ export function NetworksDropdown() {
       } else {
         switched = true; // Already on correct chain
       }
-    }
+    } 
     // Priority 2: For external wallets, use window.ethereum
     else if (!isEmbeddedWallet && window.ethereum) {
       try {
         const chainIdHex = `0x${network.id.toString(16)}`;
-
+        
         // Check current chain
         const currentChainId = await (window.ethereum as any).request({
           method: "eth_chainId",
         });
-
+        
         if (currentChainId === chainIdHex) {
           switched = true;
         } else {

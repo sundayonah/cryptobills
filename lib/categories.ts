@@ -15,7 +15,7 @@ export const UTILITY_CATEGORIES: CategoryConfig[] = [
   {
     id: 'airtime',
     name: 'Airtime',
-    enabled: true, // Only Airtime is enabled for now
+    enabled: true,
     apiPath: '/airtime',
   },
   {

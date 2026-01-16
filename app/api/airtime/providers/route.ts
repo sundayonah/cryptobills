@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 import { getPayBetaClient } from '@/lib/paybeta';
-import { FALLBACK_PROVIDERS } from '@/lib/providers';
 
 export async function GET() {
   try {
@@ -12,19 +11,24 @@ export async function GET() {
       return NextResponse.json(providers);
     }
 
-    // Return fallback if API response is invalid
-    return NextResponse.json({
-      status: 'successful',
-      message: 'Request processed successfully.',
-      data: FALLBACK_PROVIDERS,
-    });
+    // Return error if API response is invalid
+    return NextResponse.json(
+      {
+        status: 'error',
+        message: 'Invalid response from providers API',
+        data: [],
+      },
+      { status: 500 }
+    );
   } catch (error: any) {
     console.error('Error fetching providers:', error);
-    // Return fallback providers on error (e.g., API key not enabled)
-    return NextResponse.json({
-      status: 'successful',
-      message: 'Request processed successfully.',
-      data: FALLBACK_PROVIDERS,
-    });
+    return NextResponse.json(
+      {
+        status: 'error',
+        message: error.message || 'Failed to fetch providers',
+        data: [],
+      },
+      { status: error.statusCode || 500 }
+    );
   }
 }

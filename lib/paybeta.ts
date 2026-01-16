@@ -71,8 +71,15 @@ export interface CryptoBilzClient {
  * Create axios instance with configuration
  */
 function createAxiosInstance(apiKey: string): AxiosInstance {
+  // Remove trailing slashes from base URL (axios handles path joining)
+  const baseURL = config.paybeta_base_url.replace(/\/+$/, '');
+
+  if (!baseURL) {
+    throw new Error('PAYBETA_BASE_URL is not set in environment variables');
+  }
+
   const instance = axios.create({
-    baseURL: config.paybeta_base_url,
+    baseURL,
     timeout: 30000, // 30 seconds
     headers: {
       'Accept': 'application/json',
@@ -85,7 +92,8 @@ function createAxiosInstance(apiKey: string): AxiosInstance {
   instance.interceptors.request.use(
     (config) => {
       if (process.env.NODE_ENV === 'development') {
-        console.log(`[PayBeta] ${config.method?.toUpperCase()} ${config.url}`);
+        const fullUrl = `${config.baseURL}${config.url}`;
+        console.log(`[PayBeta] ${config.method?.toUpperCase()} ${fullUrl}`);
       }
       return config;
     },
@@ -97,7 +105,13 @@ function createAxiosInstance(apiKey: string): AxiosInstance {
     (response) => response,
     async (error: AxiosError) => {
       if (process.env.NODE_ENV === 'development') {
-        console.error('[PayBeta Error]', error.response?.data || error.message);
+        const fullUrl = error.config ? `${error.config.baseURL}${error.config.url}` : 'unknown';
+        console.error('[PayBeta Error]', {
+          url: fullUrl,
+          status: error.response?.status,
+          data: error.response?.data,
+          message: error.message,
+        });
       }
       return Promise.reject(error);
     }
@@ -180,10 +194,17 @@ export function createCryptobilzClient(apiKey: string): CryptoBilzClient {
       request: AirtimePurchaseRequest
     ): Promise<AirtimePurchaseResponse> {
       try {
+        // Ensure amount is an integer as required by PayBeta API
+        const payload = {
+          ...request,
+          amount: Math.round(request.amount),
+        };
+
         const response = await api.post<AirtimePurchaseResponse>(
           '/airtime/purchase',
-          request
+          payload
         );
+
         return response.data;
       } catch (error) {
         throw handleError(error);
@@ -468,7 +489,7 @@ export async function completePurchaseFlow(
   try {
     // Step 1: Check balance
     const balanceResponse = await client.getWalletBalance();
-    if (balanceResponse.data && balanceResponse.data.balance < amount) {
+    if (balanceResponse.data && balanceResponse.data.availableBalance < amount) {
       throw new Error('Insufficient balance');
     }
 

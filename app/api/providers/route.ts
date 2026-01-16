@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPayBetaClient } from '@/lib/paybeta';
-import { FALLBACK_PROVIDERS } from '@/lib/providers';
 import type { UtilityBillCategory } from '@/types';
 
 /**
@@ -39,45 +38,34 @@ export async function GET(request: NextRequest) {
 
     try {
       const paybeta = getPayBetaClient();
-      
+
       // Use axios directly for dynamic paths
       const response = await paybeta.api.get(apiPath);
-      
+
       if (response.data.status === 'successful' && response.data.data) {
         return NextResponse.json(response.data);
       }
-      
-      // Return fallback for airtime only
-      if (category === 'airtime') {
-        return NextResponse.json({
-          status: 'successful',
-          message: 'Request processed successfully.',
-          data: FALLBACK_PROVIDERS,
-        });
-      }
-      
-      return NextResponse.json({
-        status: 'successful',
-        message: 'Request processed successfully.',
-        data: [],
-      });
+
+      // Return error if API response is invalid
+      return NextResponse.json(
+        {
+          status: 'error',
+          message: 'Invalid response from providers API',
+          data: [],
+        },
+        { status: 500 }
+      );
     } catch (error: any) {
-      console.error(`Error fetching ${category} providers:`, error);
-      
-      // Return fallback for airtime only
-      if (category === 'airtime') {
-        return NextResponse.json({
-          status: 'successful',
-          message: 'Request processed successfully.',
-          data: FALLBACK_PROVIDERS,
-        });
-      }
-      
-      return NextResponse.json({
-        status: 'successful',
-        message: 'Request processed successfully.',
-        data: [],
-      });
+      console.error(`Error fetching ${category} providers:`, error.message || error);
+
+      return NextResponse.json(
+        {
+          status: 'error',
+          message: error.response?.data?.message || error.message || `Failed to fetch ${category} providers`,
+          data: [],
+        },
+        { status: error.response?.status || error.statusCode || 500 }
+      );
     }
   } catch (error: any) {
     console.error('Error in providers endpoint:', error);

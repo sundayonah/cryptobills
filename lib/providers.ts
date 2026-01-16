@@ -27,43 +27,27 @@ export function mapProviderNameToService(name: string): AirtimeService | null {
 }
 
 /**
- * Fallback providers data (used when API is not available)
- */
-export const FALLBACK_PROVIDERS: AirtimeProvider[] = [
-  {
-    name: "MTN VTU",
-    category: "airtime",
-    status: true,
-    logo: "https://res.cloudinary.com/paybeta/image/upload/v1713709773/Provider/VTU/800px-New-mtn-logo_wpn9qq.jpg"
-  },
-  {
-    name: "GLO VTU",
-    category: "airtime",
-    status: true,
-    logo: "https://res.cloudinary.com/paybeta/image/upload/v1713709647/Provider/VTU/glo_fpaf7m.svg"
-  },
-  {
-    name: "Airtel VTU",
-    category: "airtime",
-    status: true,
-    logo: "https://res.cloudinary.com/paybeta/image/upload/v1713709747/Provider/VTU/airtel_qkjpk1.png"
-  },
-  {
-    name: "9mobile VTU",
-    category: "airtime",
-    status: true,
-    logo: "https://res.cloudinary.com/paybeta/image/upload/v1713709763/Provider/VTU/9mobile_iswfnh.svg"
-  }
-];
-
-/**
  * Filter and map providers to include service codes
  */
 export function processProviders(providers: AirtimeProvider[]): Array<AirtimeProvider & { service: AirtimeService }> {
   return providers
-    .filter(provider => provider.status && provider.category === 'airtime')
+    .filter(provider => {
+      // Filter by category, and status if provided (API may not include status)
+      if (provider.category !== 'airtime') return false;
+      // If status is provided, it must be true; if not provided, include it anyway
+      return provider.status !== false;
+    })
     .map(provider => {
-      const service = mapProviderNameToService(provider.name);
+      // Use slug if available (from API), otherwise map from name
+      let service: AirtimeService | null = null;
+
+      if (provider.slug && ['mtn_vtu', 'glo_vtu', 'airtel_vtu', '9mobile_vtu'].includes(provider.slug)) {
+        service = provider.slug as AirtimeService;
+      } else {
+        // Fallback to name mapping
+        service = mapProviderNameToService(provider.name);
+      }
+
       if (!service) {
         return null;
       }

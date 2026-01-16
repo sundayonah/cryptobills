@@ -64,6 +64,18 @@ export async function convertToNGN(
       throw new Error('Invalid token amount');
     }
 
+    // PayCrest API minimum amount is 0.5
+    // For amounts below 0.5, use rate-based calculation (get rate for 1 token, then multiply)
+    const PAYCREST_MIN_AMOUNT = 0.5;
+
+    if (amount < PAYCREST_MIN_AMOUNT) {
+      // For amounts < 0.5 (e.g., 0.1, 0.2), use rate calculation
+      // This works because getExchangeRate() calls /1/ngn which always works
+      const rate = await getExchangeRate(token);
+      return Math.round(amount * rate);
+    }
+
+    // For amounts >= 0.5, use direct API call with specific amount
     // PayCrest API endpoint: /v1/rates/{token}/{amount}/ngn
     // Returns NGN amount for the user's specific token amount
     const tokenLower = token.toLowerCase();
@@ -77,7 +89,9 @@ export async function convertToNGN(
     });
 
     if (!response.ok) {
-      throw new Error(`PayCrest API error: ${response.status}`);
+      // If API fails, fallback to rate calculation
+      const rate = await getExchangeRate(token);
+      return Math.round(amount * rate);
     }
 
     const data: PayCrestResponse = await response.json();
@@ -94,7 +108,7 @@ export async function convertToNGN(
     }
   } catch (error) {
     console.error(`Error converting ${tokenAmount} ${token} to NGN:`, error);
-    // Fallback: use rate calculation if API fails
+    // Final fallback: use rate calculation if API fails
     const rate = await getExchangeRate(token);
     const amount = parseFloat(tokenAmount);
     return Math.round(amount * rate);

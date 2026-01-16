@@ -11,23 +11,17 @@ datasource db {
 }
 
 model User {
-  id            String  @id @default(cuid())
-  walletAddress String  @unique
-  privyUserId   String? @unique
-
-  // Authentication & Provider Info
-  loginProvider String? // 'email' | 'metamask' | 'phantom' | 'wallet_connect' | 'coinbase_wallet' | 'rainbow' | 'trust_wallet' | 'embedded'
-  walletType    String? // 'embedded' | 'external' | 'smart_wallet'
+  id            String    @id @default(cuid())
+  walletAddress String    @unique
+  privyUserId   String?   @unique
   email         String?
-
-  // Activity Tracking
-  loginCount   Int       @default(0)
-  lastLoginAt  DateTime?
-  firstLoginAt DateTime?
-
-  // Timestamps
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  loginProvider String? // 'email', 'metamask', 'phantom', etc.
+  walletType    String? // 'embedded', 'external', 'smart_wallet'
+  loginCount    Int       @default(0)
+  firstLoginAt  DateTime?
+  lastLoginAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   transactions Transaction[]
 
@@ -49,10 +43,25 @@ model Transaction {
   exchangeRate  Float
   paymentTxHash String?
 
-  // Airtime details
-  phoneNumber          String
-  service              String // 'mtn_vtu' | 'glo_vtu' | 'airtel_vtu' | '9mobile_vtu'
-  airtimeAmount        Int
+  // Network/Blockchain details
+  networkChainId Int? // Chain ID (1, 137, 42161, 8453, etc.)
+  networkName    String? // 'Ethereum', 'Polygon', 'Arbitrum', 'Base', etc.
+
+  // Service/Category details
+  category    String // 'airtime', 'data_bundle', 'cable_tv', 'electricity', 'showmax', 'gaming'
+  service     String // Provider/service code (e.g., 'mtn_vtu', 'glo_vtu', etc.)
+  serviceName String? // Human-readable service name (e.g., 'MTN VTU', 'GLO VTU')
+
+  // Recipient details (varies by category)
+  phoneNumber   String? // For airtime, data bundle
+  accountNumber String? // For cable tv, electricity
+  meterNumber   String? // For electricity
+  decoderNumber String? // For cable tv
+
+  // Amount details
+  serviceAmount Int // Amount sent for the service (in NGN or units)
+
+  // PayBeta integration
   paybetaReference     String  @unique
   paybetaTransactionId String?
 
@@ -67,7 +76,9 @@ model Transaction {
 
   @@index([userId])
   @@index([walletAddress])
+  @@index([category])
   @@index([paybetaReference])
   @@index([status])
   @@index([createdAt])
+  @@index([networkChainId])
 }

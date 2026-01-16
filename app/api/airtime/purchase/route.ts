@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
-import { getPayBetaClient } from '@/lib/paybeta';
 import { convertToNGN } from '@/lib/exchange';
-import { PAYMENT_RECIPIENT_ADDRESS } from '@/lib/constants';
-import type { SupportedToken, AirtimeService } from '@/types';
+import config from '@/lib/config';
+import { getNetworkById } from '@/lib/networks';
+import { processPayment } from '@/lib/payment-processors';
+import type { SupportedToken, UtilityBillCategory } from '@/types';
 
 const purchaseSchema = z.object({
   walletAddress: z.string().min(1),
@@ -14,6 +15,10 @@ const purchaseSchema = z.object({
   phoneNumber: z.string().regex(/^0\d{10}$/, 'Invalid Nigerian phone number'),
   service: z.enum(['mtn_vtu', 'glo_vtu', 'airtel_vtu', '9mobile_vtu']),
   paymentTxHash: z.string().optional(),
+  category: z.enum(['airtime', 'data_bundle', 'cable_tv', 'electricity', 'showmax', 'gaming']).optional().default('airtime'),
+  networkChainId: z.number().optional(),
+  serviceName: z.string().optional(),
+  reference: z.string().optional(), // Allow custom reference for testing
 });
 
 export async function POST(request: NextRequest) {
@@ -33,37 +38,41 @@ export async function POST(request: NextRequest) {
     const ngnAmount = await convertToNGN(validated.tokenAmount, validated.token as SupportedToken);
     const exchangeRate = ngnAmount / parseFloat(validated.tokenAmount);
 
-    // Get or create user (fallback - user should already exist from sync endpoint)
+    // Get network details if chainId provided
+    const network = validated.networkChainId ? getNetworkById(validated.networkChainId) : null;
+
+    // Get or create user
     let user = await prisma.user.findUnique({
       where: { walletAddress: validated.walletAddress },
     });
 
     if (!user) {
-      // Fallback: create user if sync endpoint didn't run (shouldn't happen normally)
-      const now = new Date();
       user = await prisma.user.create({
         data: {
           walletAddress: validated.walletAddress,
           privyUserId: validated.privyUserId,
-          loginCount: 1,
-          firstLoginAt: now,
-          lastLoginAt: now,
         },
       });
-    } else {
-      // Update user if privyUserId is missing
-      if (validated.privyUserId && !user.privyUserId) {
-        user = await prisma.user.update({
-          where: { id: user.id },
-          data: { privyUserId: validated.privyUserId },
-        });
-      }
+    } else if (validated.privyUserId && !user.privyUserId) {
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: { privyUserId: validated.privyUserId },
+      });
     }
 
-    // Generate unique reference
-    const reference = `CRYPTOBILZ-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    // Generate unique reference (use custom reference if provided, otherwise generate one)
+    const reference = validated.reference || `CRYPTOBILZ-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-    // Create transaction record
+    // Determine service name from service code (for display)
+    const serviceNameMap: Record<string, string> = {
+      'mtn_vtu': 'MTN VTU',
+      'glo_vtu': 'GLO VTU',
+      'airtel_vtu': 'Airtel VTU',
+      '9mobile_vtu': '9mobile VTU',
+    };
+    const serviceName = validated.serviceName || serviceNameMap[validated.service] || validated.service;
+
+    // Create transaction record with all details
     const transaction = await prisma.transaction.create({
       data: {
         userId: user.id,
@@ -73,42 +82,52 @@ export async function POST(request: NextRequest) {
         ngnAmount,
         exchangeRate,
         paymentTxHash: validated.paymentTxHash,
-        phoneNumber: validated.phoneNumber,
+        networkChainId: network?.id,
+        networkName: network?.name,
+        category: validated.category || 'airtime',
         service: validated.service,
-        airtimeAmount: ngnAmount, // Use NGN amount as airtime amount
+        serviceName,
+        phoneNumber: validated.phoneNumber,
+        serviceAmount: Math.round(ngnAmount), // Amount in NGN (integer)
         paybetaReference: reference,
         status: 'payment_received',
+        paymentReceivedAt: new Date(),
       },
     });
 
-    // Purchase airtime via PayBeta
-    // PayBeta API requires amount as integer
-    const paybeta = getPayBetaClient();
-    const airtimeResponse = await paybeta.purchaseAirtime({
-      service: validated.service as AirtimeService,
+    // Process payment via dynamic payment processor
+    // This routes to the appropriate PayBeta API endpoint based on category
+    const paymentResponse = await processPayment({
+      category: validated.category || 'airtime',
+      service: validated.service,
       phoneNumber: validated.phoneNumber,
+      accountNumber: undefined, // Add when implementing other categories
+      meterNumber: undefined, // Add when implementing electricity
+      decoderNumber: undefined, // Add when implementing cable TV
       amount: Math.round(ngnAmount), // Ensure integer
       reference,
     });
 
     // Update transaction with PayBeta response
-    if (airtimeResponse.status === 'successful' && airtimeResponse.data) {
+    if (paymentResponse.status === 'successful' && paymentResponse.data) {
       await prisma.transaction.update({
         where: { id: transaction.id },
         data: {
           status: 'completed',
-          paybetaTransactionId: airtimeResponse.data.transactionId,
+          paybetaTransactionId: paymentResponse.data?.transactionId,
           completedAt: new Date(),
         },
       });
+
+      const categoryName = validated.category === 'airtime' ? 'airtime' : validated.category;
 
       return NextResponse.json({
         success: true,
         transaction: {
           id: transaction.id,
           status: 'completed',
-          paybetaReference: airtimeResponse.data.reference,
-          paybetaTransactionId: airtimeResponse.data.transactionId,
+          paybetaReference: paymentResponse.data?.reference || reference,
+          paybetaTransactionId: paymentResponse.data?.transactionId,
         },
       });
     } else {
@@ -116,12 +135,14 @@ export async function POST(request: NextRequest) {
         where: { id: transaction.id },
         data: {
           status: 'failed',
-          errorMessage: airtimeResponse.message || 'PayBeta purchase failed',
+          errorMessage: paymentResponse.message || 'PayBeta purchase failed',
         },
       });
 
+      const categoryName = validated.category === 'airtime' ? 'airtime' : validated.category;
+
       return NextResponse.json(
-        { error: airtimeResponse.message || 'Failed to purchase airtime' },
+        { error: paymentResponse.message || `Failed to purchase ${categoryName}` },
         { status: 500 }
       );
     }

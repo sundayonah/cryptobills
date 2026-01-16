@@ -16,11 +16,16 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { TOKEN_CONFIGS, PAYMENT_RECIPIENT_ADDRESS, MIN_AMOUNT, MAX_AMOUNT } from "@/lib/constants";
-import { FALLBACK_PROVIDERS, processProviders } from "@/lib/providers";
+import config from "@/lib/config";
+import { getTokenConfigFromProvider } from "@/lib/token-utils";
+import { processProviders } from "@/lib/providers";
 import { UTILITY_CATEGORIES } from "@/lib/categories";
 import { getWalletAddressFromPrivyUser } from "@/lib/privy-utils";
 import { useBalance } from "@/contexts/balance-context";
+import { SUPPORTED_NETWORKS } from "@/lib/networks";
+import { useWallets } from "@privy-io/react-auth";
+import { processWalletPayment, getWalletChainId, waitForTransactionConfirmation } from "@/lib/wallet-payment";
+import { convertToNGN } from "@/lib/exchange";
 import type { SupportedToken, AirtimeService, AirtimeProvider, UtilityBillCategory } from "@/types";
 import { motion } from "framer-motion";
 import { Loader2, ArrowDown, Wallet } from "lucide-react";
@@ -32,9 +37,9 @@ const airtimeSchema = z.object({
   amount: z.string().refine(
     (val) => {
       const num = parseFloat(val);
-      return !isNaN(num) && num >= MIN_AMOUNT && num <= MAX_AMOUNT;
+      return !isNaN(num) && num >= config.min_amount && num <= config.max_amount;
     },
-    { message: `Amount must be between $${MIN_AMOUNT} and $${MAX_AMOUNT}` }
+    { message: `Amount must be between $${config.min_amount} and $${config.max_amount}` }
   ),
   phoneNumber: z.string().min(1, "Account/Phone number is required"),
   service: z.enum(["mtn_vtu", "glo_vtu", "airtel_vtu", "9mobile_vtu"]),
@@ -50,6 +55,7 @@ interface ExchangeRate {
 
 export function AirtimeSwapCard() {
   const { ready, authenticated, user, login } = usePrivy();
+  const { wallets } = useWallets();
   const { toast } = useToast();
   const { getBalance, isLoading: isLoadingBalance, refreshBalances } = useBalance();
   const [exchangeRate, setExchangeRate] = useState<ExchangeRate | null>(null);
@@ -97,63 +103,68 @@ export function AirtimeSwapCard() {
       setLoadingProviders(true);
       try {
         const response = await fetch(`/api/providers?category=${selectedCategory}`);
-        if (response.ok) {
-          const data = await response.json();
-          if (data.status === "successful" && data.data) {
-            // Only process providers for airtime category
-            if (selectedCategory === "airtime") {
-              const processed = processProviders(data.data);
-              setProviders(processed);
-              // Set default service if available
-              if (processed.length > 0) {
-                setValue("service", processed[0].service);
-              }
+        const data = await response.json();
+
+        if (response.ok && data.status === "successful" && data.data && Array.isArray(data.data)) {
+          // Process providers based on category
+          if (selectedCategory === "airtime") {
+            const processed = processProviders(data.data);
+            setProviders(processed);
+            // Set default service if available
+            if (processed.length > 0) {
+              setValue("service", processed[0].service);
             } else {
-              // For other categories, store raw providers (will be handled when enabled)
               setProviders([]);
             }
           } else {
-            // Use fallback providers for airtime only
-            if (selectedCategory === "airtime") {
-              const processed = processProviders(FALLBACK_PROVIDERS);
-              setProviders(processed);
-              if (processed.length > 0) {
-                setValue("service", processed[0].service);
-              }
+            // For other categories, process providers that have a slug field
+            const processed = data.data
+              .filter((provider: any) => provider.status !== false && provider.slug)
+              .map((provider: any) => ({
+                ...provider,
+                service: provider.slug as AirtimeService,
+              }));
+            setProviders(processed as Array<AirtimeProvider & { service: AirtimeService }>);
+            // Set default service if available
+            if (processed.length > 0) {
+              setValue("service", processed[0].service);
             } else {
               setProviders([]);
             }
           }
         } else {
-          // Use fallback providers for airtime only
-          if (selectedCategory === "airtime") {
-            const processed = processProviders(FALLBACK_PROVIDERS);
-            setProviders(processed);
-            if (processed.length > 0) {
-              setValue("service", processed[0].service);
-            }
-          } else {
-            setProviders([]);
-          }
+          // API returned an error or invalid response
+          console.error("Failed to fetch providers:", {
+            status: response.status,
+            message: data.message || "Unknown error",
+            data,
+          });
+
+          // Show error toast to user
+          toast({
+            title: "Failed to load providers",
+            description: data.message || "Unable to fetch airtime providers. Please try again later.",
+            variant: "destructive",
+          });
+
+          setProviders([]);
         }
       } catch (error) {
         console.error("Error fetching providers:", error);
-        // Use fallback providers for airtime only
-        if (selectedCategory === "airtime") {
-          const processed = processProviders(FALLBACK_PROVIDERS);
-          setProviders(processed);
-          if (processed.length > 0) {
-            setValue("service", processed[0].service);
-          }
-        } else {
-          setProviders([]);
-        }
+
+        toast({
+          title: "Error",
+          description: "Failed to load providers. Please check your connection and try again.",
+          variant: "destructive",
+        });
+
+        setProviders([]);
       } finally {
         setLoadingProviders(false);
       }
     };
     fetchProviders();
-  }, [selectedCategory, setValue]);
+  }, [selectedCategory, setValue, toast]);
 
   // Fetch exchange rate
   useEffect(() => {
@@ -250,7 +261,7 @@ export function AirtimeSwapCard() {
       return;
     }
 
-    if (!PAYMENT_RECIPIENT_ADDRESS) {
+    if (!config.payment_recipient_address) {
       toast({
         title: "Configuration Error",
         description: "Payment recipient address is not configured",
@@ -272,65 +283,180 @@ export function AirtimeSwapCard() {
     setIsProcessing(true);
 
     try {
-      if (!window.ethereum) {
-        throw new Error("No wallet provider found. Please install MetaMask or another Web3 wallet.");
+      // ============================================
+      // STEP 1: VALIDATE CONFIGURATION FIRST (BEFORE ANY TRANSFERS)
+      // ============================================
+
+      // Validate PayCrest API is configured
+      if (!config.paycrest_rate_api) {
+        throw new Error('Exchange rate API is not configured. Please check PAYCREST_RATE_API environment variable.');
       }
 
-      const ethersProvider = new ethers.BrowserProvider(window.ethereum);
-      const signer = await ethersProvider.getSigner();
-      const tokenConfig = TOKEN_CONFIGS[data.token];
+      // Validate payment recipient address
+      if (!config.payment_recipient_address) {
+        throw new Error('Payment recipient address is not configured. Please check NEXT_PUBLIC_PAYMENT_RECIPIENT_ADDRESS environment variable.');
+      }
 
-      const erc20Abi = [
-        "function transfer(address to, uint256 amount) external returns (bool)",
-        "function balanceOf(address account) external view returns (uint256)",
-      ];
+      // ============================================
+      // STEP 2: VALIDATE WALLET AND NETWORK
+      // ============================================
 
-      const tokenContract = new ethers.Contract(
-        tokenConfig.address,
-        erc20Abi,
-        signer
-      );
+      // Get Privy wallet (already available from useWallets hook at component level)
+      if (!wallets || wallets.length === 0) {
+        throw new Error("No wallet connected. Please connect a wallet first.");
+      }
 
-      const amount = ethers.parseUnits(data.amount, tokenConfig.decimals);
-      const tx = await tokenContract.transfer(PAYMENT_RECIPIENT_ADDRESS, amount);
+      const wallet = wallets[0];
+
+      // Get current network chain ID from wallet
+      const chainId = getWalletChainId(wallet);
+      const networkInfo = SUPPORTED_NETWORKS.find(n => n.id === chainId);
+
+      if (!networkInfo) {
+        throw new Error(`Unsupported network. Please switch to a supported network.`);
+      }
+
+      // ============================================
+      // STEP 3: VALIDATE EXCHANGE RATE API (BEFORE TRANSFER)
+      // ============================================
 
       toast({
-        title: "Transaction Sent",
-        description: `Waiting for confirmation... ${tx.hash.slice(0, 10)}...`,
+        title: "Validating",
+        description: "Checking exchange rate...",
       });
 
-      const receipt = await tx.wait();
+      let ngnAmount: number;
+      try {
+        ngnAmount = await convertToNGN(data.amount, data.token);
+      } catch (error: any) {
+        throw new Error(`Failed to get exchange rate: ${error.message}. Please try again later.`);
+      }
 
-      if (receipt.status === 1) {
-        const purchaseResponse = await fetch("/api/airtime/purchase", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            walletAddress: walletAddress,
-            privyUserId: user?.id,
-            token: data.token,
-            tokenAmount: data.amount,
-            phoneNumber: data.phoneNumber,
-            service: data.service,
-            paymentTxHash: receipt.hash,
-          }),
-        });
+      // ============================================
+      // STEP 4: VALIDATE PAYBETA BALANCE (BEFORE TRANSFER)
+      // ============================================
 
-        const purchaseResult = await purchaseResponse.json();
+      toast({
+        title: "Checking Balance",
+        description: "Verifying PayBeta has sufficient funds...",
+      });
 
-        if (purchaseResponse.ok && purchaseResult.success) {
-          toast({
-            title: "Success!",
-            description: `Airtime sent to ${data.phoneNumber}. Transaction ID: ${purchaseResult.transaction.paybetaReference}`,
-          });
-          // Reset form
-          setValue("amount", "");
-          setValue("phoneNumber", "");
-        } else {
-          throw new Error(purchaseResult.error || "Failed to purchase airtime");
+      // Check PayBeta balance via API route (server-side)
+      let balanceResponse;
+      try {
+        const balanceApiResponse = await fetch('/api/paybeta/balance');
+        const balanceData = await balanceApiResponse.json();
+
+        if (!balanceApiResponse.ok || !balanceData.success) {
+          throw new Error(balanceData.error || 'Failed to check PayBeta balance');
         }
+
+        balanceResponse = balanceData;
+      } catch (error: any) {
+        throw new Error(`Failed to check PayBeta balance: ${error.message}. Please try again later.`);
+      }
+
+      const availableBalance = balanceResponse.data.availableBalance;
+
+      if (availableBalance < ngnAmount) {
+        throw new Error(
+          `PayBeta has insufficient balance. ` +
+          `Available: ₦${availableBalance.toLocaleString()}, ` +
+          `Required: ₦${ngnAmount.toLocaleString()}. ` +
+          `Please try again later or contact support.`
+        );
+      }
+
+      toast({
+        title: "Balance Verified",
+        description: `PayBeta balance: ₦${availableBalance.toLocaleString()}`,
+      });
+
+      // ============================================
+      // STEP 5: ALL VALIDATIONS PASSED - NOW TRANSFER TOKENS
+      // ============================================
+
+      // Transfer tokens using Viem + Privy pattern
+      toast({
+        title: "Processing Transfer",
+        description: `Initiating ${data.token} transfer...`,
+      });
+
+      const transferResult = await processWalletPayment(wallet, {
+        token: data.token,
+        tokenAmount: data.amount,
+        recipientAddress: config.payment_recipient_address,
+        chainId: chainId,
+      });
+
+      const txHash = transferResult.transactionHash;
+      const chainIdNum = transferResult.networkChainId;
+
+      // Wait for transaction confirmation before proceeding
+      toast({
+        title: "Transaction Sent",
+        description: `Waiting for blockchain confirmation... ${txHash.slice(0, 10)}...`,
+      });
+
+      const confirmation = await waitForTransactionConfirmation(
+        txHash as `0x${string}`,
+        chainIdNum
+      );
+
+      if (confirmation.status !== 'success') {
+        throw new Error('Transaction failed on blockchain. Please try again.');
+      }
+
+      toast({
+        title: "Transaction Confirmed",
+        description: `Payment confirmed at block ${confirmation.blockNumber.toString()}`,
+      });
+
+      // ============================================
+      // STEP 6: PROCESS AIRTIME PURCHASE
+      // ============================================
+
+      // Get service name from selected provider
+      const selectedProvider = providers.find(p => p.service === data.service);
+      const serviceName = selectedProvider?.name || data.service;
+
+      // Use category-specific purchase endpoint (currently only airtime is implemented)
+      const category = UTILITY_CATEGORIES.find(cat => cat.id === selectedCategory);
+      const purchaseEndpoint = category?.id === 'airtime'
+        ? "/api/airtime/purchase"  // Next.js API route (not PayBeta)
+        : `/api/${selectedCategory}/purchase`;
+
+      const purchaseResponse = await fetch(purchaseEndpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          walletAddress: walletAddress,
+          privyUserId: user?.id,
+          token: data.token,
+          tokenAmount: data.amount,
+          phoneNumber: data.phoneNumber,
+          service: data.service,
+          serviceName: serviceName,
+          paymentTxHash: txHash,
+          category: selectedCategory,
+          networkChainId: chainIdNum,
+        }),
+      });
+
+      const purchaseResult = await purchaseResponse.json();
+
+      if (purchaseResponse.ok && purchaseResult.success) {
+        const categoryName = UTILITY_CATEGORIES.find(cat => cat.id === selectedCategory)?.name || 'Service';
+        toast({
+          title: "Success!",
+          description: `${categoryName} sent to ${data.phoneNumber}. Transaction ID: ${purchaseResult.transaction.paybetaReference}`,
+        });
+        // Reset form
+        setValue("amount", "");
+        setValue("phoneNumber", "");
       } else {
-        throw new Error("Transaction failed");
+        const categoryName = UTILITY_CATEGORIES.find(cat => cat.id === selectedCategory)?.name || 'Service';
+        throw new Error(purchaseResult.error || `Failed to purchase ${categoryName.toLowerCase()}`);
       }
     } catch (error: any) {
       console.error("Error:", error);
@@ -398,14 +524,14 @@ export function AirtimeSwapCard() {
           </Select>
         </div>
 
-        {/* Provider/Network Selector - Only show for airtime, right after service type */}
+        {/* ProviderSelector - Only show for airtime, right after service type */}
         {selectedCategory === "airtime" && (
           <div className="space-y-2">
-            <label className="text-sm text-gray-600">Network</label>
+            <label className="text-sm text-gray-600">Provider</label>
             {loadingProviders ? (
               <div className="w-full h-14 bg-purple-50 border border-purple-200 rounded-xl flex items-center justify-center">
                 <LoadingSpinner size="sm" className="text-purple-600" />
-                <span className="ml-2 text-sm text-purple-600">Loading networks...</span>
+                <span className="ml-2 text-sm text-purple-600">Loading providers...</span>
               </div>
             ) : (
               <Select
@@ -417,7 +543,7 @@ export function AirtimeSwapCard() {
                   <SelectValue placeholder={
                     !UTILITY_CATEGORIES.find(cat => cat.id === selectedCategory)?.enabled
                       ? "Service not available"
-                      : "Select network"
+                      : "Select provider"
                   }>
                     {(() => {
                       if (selectedService && providers.length > 0 && selectedCategory === "airtime") {
@@ -502,8 +628,8 @@ export function AirtimeSwapCard() {
             <Input
               type="number"
               step="0.01"
-              min={MIN_AMOUNT}
-              max={MAX_AMOUNT}
+              min={config.min_amount}
+              max={config.max_amount}
               placeholder="0"
               className="flex-1 bg-gray-50 border-gray-300 text-gray-900 text-2xl h-16 rounded-xl"
               {...register("amount")}

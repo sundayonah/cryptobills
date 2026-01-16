@@ -8,14 +8,6 @@
 
 export type SupportedToken = 'USDC' | 'USDT';
 
-export interface TokenConfig {
-    symbol: SupportedToken;
-    name: string;
-    address: string; // Contract address
-    decimals: number;
-    logo?: string;
-}
-
 export interface WalletConnection {
     address: string;
     chainId: number;
@@ -58,9 +50,11 @@ export type UtilityBillCategory =
     | 'gaming';
 
 export type AirtimeProvider = {
+    id?: string;
     name: string;
     category: string;
-    status: boolean;
+    status?: boolean; // Optional - not always present in API response
+    slug?: string; // Service slug (e.g., 'mtn_vtu', 'glo_vtu')
     logo: string;
 };
 
@@ -106,8 +100,8 @@ export interface WalletBalanceResponse {
     status: string;
     message: string;
     data: {
-        balance: number;
-        currency: string;
+        availableBalance: number;
+        lienAmount: number;
     };
 }
 
@@ -201,6 +195,9 @@ export interface Config {
     fallback_rate: number;
     paybeta_api_key: string;
     paybeta_base_url: string;
+    payment_recipient_address: string;
+    min_amount: number;
+    max_amount: number;
 }
 
 // ============================================================================
