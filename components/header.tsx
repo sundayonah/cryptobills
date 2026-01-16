@@ -44,19 +44,19 @@ export function Header() {
 
   if (!ready) {
     return (
-      <header className="w-full border-b border-gray-200 bg-white">
+      <header className="w-full border-b border-[#4a4b52] bg-[#2d2e33]">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
           <div className="text-xl font-bold bg-gradient-to-r from-blue-500 to-purple-500 bg-clip-text text-transparent">
             cryptobilz
           </div>
-          <div className="h-10 w-20 bg-gray-200 rounded animate-pulse" />
+          <div className="h-10 w-20 bg-[#36373d] rounded animate-pulse" />
         </div>
       </header>
     );
   }
 
   return (
-    <header className="w-full border-b border-gray-200 bg-white">
+    <header className="w-full border-b border-[#4a4b52] bg-[#2d2e33]">
       <div className="container mx-auto px-4 py-4 flex items-center justify-between">
         <motion.div
           initial={{ opacity: 0, x: -20 }}
@@ -87,25 +87,25 @@ export function Header() {
                   return (
                     <button
                       onClick={() => handleCopyAddress(walletAddress)}
-                      className="hidden sm:flex items-center gap-2 px-3 py-2 bg-gray-100 rounded-lg border border-gray-200 hover:bg-gray-200 transition-colors cursor-pointer"
+                      className="hidden sm:flex items-center gap-2 px-3 py-2 bg-[#36373d] rounded-lg border border-[#4a4b52] hover:bg-[#404149] transition-colors cursor-pointer"
                       title="Click to copy address"
                     >
-                      <Wallet className="h-4 w-4 text-gray-600" />
-                      <span className="text-sm text-gray-700">
+                      <Wallet className="h-4 w-4 text-gray-400" />
+                      <span className="text-sm text-gray-200">
                         {walletAddress.slice(0, 6)}...{walletAddress.slice(-4)}
                       </span>
                       {copied ? (
                         <Check className="h-3 w-3 text-green-600" />
                       ) : (
-                        <Copy className="h-3 w-3 text-gray-500" />
+                        <Copy className="h-3 w-3 text-gray-400" />
                       )}
                     </button>
                   );
                 } else if (user?.email?.address) {
                   return (
-                    <div className="hidden sm:flex items-center gap-2 px-3 py-2 bg-gray-100 rounded-lg border border-gray-200">
-                      <Mail className="h-4 w-4 text-gray-600" />
-                      <span className="text-sm text-gray-700">
+                    <div className="hidden sm:flex items-center gap-2 px-3 py-2 bg-[#36373d] rounded-lg border border-[#4a4b52]">
+                      <Mail className="h-4 w-4 text-gray-400" />
+                      <span className="text-sm text-gray-200">
                         {user.email.address}
                       </span>
                     </div>
@@ -117,7 +117,7 @@ export function Header() {
               <Button
                 onClick={handleSignIn}
                 variant="outline"
-                className="bg-white border-gray-300 text-gray-900 hover:bg-gray-50"
+                className="bg-[#36373d] border-[#4a4b52] text-gray-200 hover:bg-[#404149]"
               >
                 <LogOut className="h-4 w-4 mr-2" />
                 Sign out
@@ -126,7 +126,7 @@ export function Header() {
           ) : (
             <Button
               onClick={handleSignIn}
-              className="bg-gray-900 border border-gray-900 text-white hover:bg-gray-800 hover:border-gray-800"
+              className="bg-purple-600 border border-purple-600 text-white hover:bg-purple-700 hover:border-purple-700"
             >
               Sign in
             </Button>

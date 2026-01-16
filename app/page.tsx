@@ -10,7 +10,7 @@ export default function Home() {
   const { ready } = usePrivy();
 
   return (
-    <div className="min-h-screen bg-white text-gray-900">
+    <div className="min-h-screen" style={{ backgroundColor: '#2d2e33', color: '#fafafa' }}>
       <Header />
 
       <main className="container mx-auto px-4 py-12">
@@ -24,9 +24,9 @@ export default function Home() {
             className="text-center mb-12"
           >
             <h1 className="text-6xl md:text-7xl font-bold mb-4">
-              <span className="text-gray-900">Change stablecoins</span>
+              <span className="text-white">Change stablecoins</span>
               <br />
-              <span className="text-gray-600 italic font-serif">to airtime in seconds</span>
+              <span className="text-gray-300 italic font-serif">to airtime in seconds</span>
             </h1>
           </motion.div>
         )}
