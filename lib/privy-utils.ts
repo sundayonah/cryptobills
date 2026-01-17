@@ -71,25 +71,40 @@ export function getEmailFromPrivyUser(user: any): string | null {
 
 /**
  * Get login provider from Privy user object
+ * Uses metadata (firstVerifiedAt/latestVerifiedAt) to determine the most recent or primary login method
  */
 export function getLoginProviderFromPrivyUser(user: any): string | null {
   if (!user) return null;
 
   // Check linkedAccounts for the login method
   if (user.linkedAccounts && Array.isArray(user.linkedAccounts)) {
-    // Find the first linked account to determine login method
-    const firstAccount = user.linkedAccounts[0];
-    if (firstAccount) {
-      if (firstAccount.type === 'email') return 'email';
-      if (firstAccount.type === 'wallet') {
+    // Sort by latestVerifiedAt to get the most recently verified account (primary login method)
+    const sortedAccounts = [...user.linkedAccounts].sort((a: any, b: any) => {
+      const aTime = a.latestVerifiedAt || a.firstVerifiedAt || 0;
+      const bTime = b.latestVerifiedAt || b.firstVerifiedAt || 0;
+      return bTime - aTime; // Most recent first
+    });
+
+    // Get the most recently verified account
+    const primaryAccount = sortedAccounts[0];
+
+    if (primaryAccount) {
+      if (primaryAccount.type === 'email') return 'email';
+      if (primaryAccount.type === 'wallet') {
         // Check connectorType for wallet provider
-        if (firstAccount.connectorType === 'metamask') return 'metamask';
-        if (firstAccount.connectorType === 'phantom') return 'phantom';
-        if (firstAccount.connectorType === 'wallet_connect') return 'wallet_connect';
-        if (firstAccount.connectorType === 'coinbase_wallet') return 'coinbase_wallet';
-        if (firstAccount.connectorType === 'embedded') return 'embedded_wallet';
+        if (primaryAccount.connectorType === 'metamask') return 'metamask';
+        if (primaryAccount.connectorType === 'phantom') return 'phantom';
+        if (primaryAccount.connectorType === 'wallet_connect') return 'wallet_connect';
+        if (primaryAccount.connectorType === 'coinbase_wallet') return 'coinbase_wallet';
+        if (primaryAccount.connectorType === 'embedded') return 'embedded_wallet';
         return 'wallet';
       }
+      // Handle other account types if needed
+      if (primaryAccount.type === 'sms') return 'sms';
+      if (primaryAccount.type === 'google') return 'google';
+      if (primaryAccount.type === 'twitter') return 'twitter';
+      if (primaryAccount.type === 'discord') return 'discord';
+      if (primaryAccount.type === 'github') return 'github';
     }
   }
 

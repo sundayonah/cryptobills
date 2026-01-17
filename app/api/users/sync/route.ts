@@ -79,15 +79,30 @@ export async function POST(request: NextRequest) {
         const loginProvider = privyUser ? getLoginProviderFromPrivyUser(privyUser) : body.loginProvider || null;
         const walletType = privyUser ? getWalletTypeFromPrivyUser(privyUser) : body.walletType || null;
 
-        // Find existing user by walletAddress or privyUserId
+        // Find existing user - prioritize exact matches to prevent merging unrelated accounts
+        // First try to find by both walletAddress and privyUserId (exact match)
         let user = await prisma.user.findFirst({
             where: {
-                OR: [
-                    { walletAddress: walletAddress.toLowerCase() },
-                    { privyUserId },
-                ],
+                AND: [
+                    walletAddress ? { walletAddress: walletAddress.toLowerCase() } : {},
+                    privyUserId ? { privyUserId } : {},
+                ].filter(condition => Object.keys(condition).length > 0),
             },
         });
+
+        // If no exact match, find by walletAddress only (if provided)
+        if (!user && walletAddress) {
+            user = await prisma.user.findUnique({
+                where: { walletAddress: walletAddress.toLowerCase() },
+            });
+        }
+
+        // If still no match, find by privyUserId only (if provided)
+        if (!user && privyUserId) {
+            user = await prisma.user.findUnique({
+                where: { privyUserId },
+            });
+        }
 
         const now = new Date();
 
@@ -136,9 +151,14 @@ export async function POST(request: NextRequest) {
             },
         });
     } catch (error: any) {
-        console.error('Error syncing user:', error);
+        // Log sanitized error to avoid exposing sensitive user information
+        console.error('Error syncing user:', {
+            error: error instanceof Error ? error.name : 'Unknown error',
+            message: error.message ? 'Error occurred' : 'Unknown error',
+            // Don't log full error message as it may contain user data
+        });
         return NextResponse.json(
-            { error: error.message || 'Failed to sync user' },
+            { error: 'Failed to sync user' },
             { status: 500 }
         );
     }

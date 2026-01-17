@@ -1523,7 +1523,7 @@ export function AirtimeSwapCard() {
                 className="w-full bg-purple-600 hover:bg-purple-700 text-white"
               >
                 <Share2 className="h-4 w-4 mr-2" />
-                Share as Image
+                Share Receipt
               </Button>
             </div>
           </motion.div>

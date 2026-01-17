@@ -141,16 +141,33 @@ export async function POST(request: NextRequest) {
 
     // Process payment via dynamic payment processor
     // This routes to the appropriate PayBeta API endpoint based on category
-    const paymentResponse = await processPayment({
-      category: validated.category || 'airtime',
-      service: validated.service,
-      phoneNumber: validated.phoneNumber,
-      accountNumber: undefined, // Add when implementing other categories
-      meterNumber: undefined, // Add when implementing electricity
-      decoderNumber: undefined, // Add when implementing cable TV
-      amount: roundedNgnAmount, // Ensure integer
-      reference,
-    });
+    let paymentResponse;
+    try {
+      paymentResponse = await processPayment({
+        category: validated.category || 'airtime',
+        service: validated.service,
+        phoneNumber: validated.phoneNumber,
+        accountNumber: undefined, // Add when implementing other categories
+        meterNumber: undefined, // Add when implementing electricity
+        decoderNumber: undefined, // Add when implementing cable TV
+        amount: roundedNgnAmount, // Ensure integer
+        reference,
+      });
+    } catch (processError: any) {
+      // If processPayment throws, mark transaction as failed
+      console.error('Error processing payment:', processError);
+      await prisma.transaction.update({
+        where: { id: transaction.id },
+        data: {
+          status: 'failed',
+          errorMessage: processError.message || 'Payment processing failed',
+        },
+      });
+      return NextResponse.json(
+        { error: processError.message || 'Failed to process payment' },
+        { status: 500 }
+      );
+    }
 
     // Update transaction with PayBeta response
     if (paymentResponse.status === 'successful' && paymentResponse.data) {

@@ -152,7 +152,7 @@ export interface ElectricityValidationResponse {
         customerAddress: string;
         meterNumber: string;
         meterType: string;
-        minimuVendAmount: number;
+        minimumVendAmount: number;
     };
 }
 

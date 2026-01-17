@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
                 message: response.data.message || 'Failed to validate meter number',
                 data: null,
             },
-            { status: 500 }
+            { status: 400 }
         );
     } catch (error: any) {
         console.error('Error validating electricity meter:', error.message || error);

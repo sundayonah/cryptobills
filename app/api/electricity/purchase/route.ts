@@ -157,16 +157,33 @@ export async function POST(request: NextRequest) {
         });
 
         // Process payment via dynamic payment processor
-        const paymentResponse = await processPayment({
-            category: 'electricity',
-            service: validated.service,
-            meterNumber: validated.meterNumber,
-            meterType: validated.meterType,
-            amount: roundedNgnAmount,
-            customerName: validated.customerName,
-            customerAddress: validated.customerAddress,
-            reference,
-        });
+        let paymentResponse;
+        try {
+            paymentResponse = await processPayment({
+                category: 'electricity',
+                service: validated.service,
+                meterNumber: validated.meterNumber,
+                meterType: validated.meterType,
+                amount: roundedNgnAmount,
+                customerName: validated.customerName,
+                customerAddress: validated.customerAddress,
+                reference,
+            });
+        } catch (processError: any) {
+            // If processPayment throws, mark transaction as failed
+            console.error('Error processing payment:', processError);
+            await prisma.transaction.update({
+                where: { id: transaction.id },
+                data: {
+                    status: 'failed',
+                    errorMessage: processError.message || 'Payment processing failed',
+                },
+            });
+            return NextResponse.json(
+                { error: processError.message || 'Failed to process payment' },
+                { status: 500 }
+            );
+        }
 
         // Update transaction with PayBeta response
         if (paymentResponse.status === 'successful' && paymentResponse.data) {
