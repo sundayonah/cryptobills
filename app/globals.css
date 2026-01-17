@@ -4,25 +4,26 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
+    /* Dark theme - #2d2e33 as base */
+    --background: 228 5% 19%; /* #2d2e33 */
+    --foreground: 0 0% 98%;
+    --card: 228 5% 23%; /* Slightly lighter for cards */
+    --card-foreground: 0 0% 98%;
+    --popover: 228 5% 23%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 270 80% 65%; /* Purple for primary actions */
+    --primary-foreground: 0 0% 98%;
+    --secondary: 228 5% 27%; /* Slightly lighter gray */
+    --secondary-foreground: 0 0% 98%;
+    --muted: 228 5% 27%;
+    --muted-foreground: 0 0% 75%;
+    --accent: 228 5% 27%;
+    --accent-foreground: 0 0% 98%;
     --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 228 5% 30%; /* Subtle borders */
+    --input: 228 5% 25%; /* Input backgrounds */
+    --ring: 270 80% 65%; /* Focus ring */
     --radius: 0.5rem;
   }
 
@@ -58,21 +59,21 @@
   }
 }
 
-/* Custom scrollbar */
+/* Custom scrollbar - dark theme */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #f5f5f5;
+  background: #2d2e33;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #d1d1d1;
+  background: #4a4b52;
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #b8b8b8;
+  background: #5a5b62;
 }

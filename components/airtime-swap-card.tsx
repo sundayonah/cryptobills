@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { usePrivy } from "@privy-io/react-auth";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -189,7 +189,7 @@ export function AirtimeSwapCard() {
   }, [selectedCategory, setValue, toast]);
 
   // Fetch bundles when data bundle provider changes
-  const fetchBundles = async (service: DataBundleService) => {
+  const fetchBundles = useCallback(async (service: DataBundleService) => {
     if (selectedCategory !== "data_bundle") {
       setBundles([]);
       setSelectedBundle("");
@@ -241,7 +241,7 @@ export function AirtimeSwapCard() {
     } finally {
       setLoadingBundles(false);
     }
-  };
+  }, [selectedCategory, exchangeRate, selectedToken, setValue, toast]);
 
   // Watch for service changes in data bundle category
   useEffect(() => {
@@ -252,8 +252,7 @@ export function AirtimeSwapCard() {
       setSelectedBundle("");
       setValue("bundleCode", "");
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedService, selectedCategory]);
+  }, [selectedService, selectedCategory, fetchBundles, setValue]);
 
   // Fetch exchange rate
   useEffect(() => {
@@ -593,12 +592,12 @@ export function AirtimeSwapCard() {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4 }}
-      className="bg-white rounded-2xl p-6 border border-gray-200 shadow-lg"
+      className="bg-[#36373d] rounded-2xl p-6 border border-[#4a4b52] shadow-lg"
     >
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
         {/* Category Selector */}
         <div className="space-y-2">
-          <label className="text-sm text-gray-600">Service Type</label>
+          <label className="text-sm text-gray-300">Service Type</label>
           <Select
             value={selectedCategory}
             onValueChange={(value) => {
@@ -612,21 +611,21 @@ export function AirtimeSwapCard() {
               setSelectedBundle("");
             }}
           >
-            <SelectTrigger className="w-full h-12 bg-gray-50 border-gray-300 text-gray-900 rounded-xl">
+            <SelectTrigger className="w-full h-12 bg-[#2d2e33] border-[#4a4b52] text-gray-100 rounded-xl">
               <SelectValue />
             </SelectTrigger>
-            <SelectContent className="bg-white border-gray-200">
+            <SelectContent className="bg-[#36373d] border-[#4a4b52]">
               {UTILITY_CATEGORIES.map((category) => (
                 <SelectItem
                   key={category.id}
                   value={category.id}
-                  className="text-gray-900"
+                  className="text-gray-100"
                   disabled={!category.enabled}
                 >
                   <div className="flex items-center justify-between w-full">
                     <span>{category.name}</span>
                     {!category.enabled && (
-                      <span className="text-xs text-gray-400 ml-2">(Coming soon)</span>
+                      <span className="text-xs text-gray-500 ml-2">(Coming soon)</span>
                     )}
                   </div>
                 </SelectItem>
@@ -638,11 +637,11 @@ export function AirtimeSwapCard() {
         {/* ProviderSelector - Show for airtime and data bundle */}
         {(selectedCategory === "airtime" || selectedCategory === "data_bundle") && (
           <div className="space-y-2">
-            <label className="text-sm text-gray-600">Provider</label>
+            <label className="text-sm text-gray-300">Provider</label>
             {loadingProviders ? (
-              <div className="w-full h-14 bg-purple-50 border border-purple-200 rounded-xl flex items-center justify-center">
-                <LoadingSpinner size="sm" className="text-purple-600" />
-                <span className="ml-2 text-sm text-purple-600">Loading providers...</span>
+              <div className="w-full h-14 bg-[#2d2e33] border border-[#4a4b52] rounded-xl flex items-center justify-center">
+                <LoadingSpinner size="sm" className="text-purple-400" />
+                <span className="ml-2 text-sm text-purple-400">Loading providers...</span>
               </div>
             ) : (
               <Select
@@ -687,12 +686,12 @@ export function AirtimeSwapCard() {
                     })()}
                   </SelectValue>
                 </SelectTrigger>
-                <SelectContent className="bg-white border-gray-200">
+                <SelectContent className="bg-[#36373d] border-[#4a4b52]">
                   {providers.map((provider) => (
                     <SelectItem
                       key={provider.service}
                       value={provider.service}
-                      className="text-gray-900"
+                      className="text-gray-100"
                     >
                       <div className="flex items-center gap-2">
                         <Image
@@ -722,11 +721,11 @@ export function AirtimeSwapCard() {
         {/* Bundle Selector - Only show for data bundle */}
         {selectedCategory === "data_bundle" && (
           <div className="space-y-2">
-            <label className="text-sm text-gray-600">Data Bundle</label>
+            <label className="text-sm text-gray-300">Data Bundle</label>
             {loadingBundles ? (
-              <div className="w-full h-14 bg-gray-50 border border-gray-200 rounded-xl flex items-center justify-center">
-                <LoadingSpinner size="sm" className="text-gray-600" />
-                <span className="ml-2 text-sm text-gray-600">Loading bundles...</span>
+              <div className="w-full h-14 bg-[#2d2e33] border border-[#4a4b52] rounded-xl flex items-center justify-center">
+                <LoadingSpinner size="sm" className="text-gray-400" />
+                <span className="ml-2 text-sm text-gray-400">Loading bundles...</span>
               </div>
             ) : bundles.length > 0 ? (
               <Select
@@ -746,14 +745,14 @@ export function AirtimeSwapCard() {
                   }
                 }}
               >
-                <SelectTrigger className="w-full h-14 bg-gray-50 border-gray-300 text-gray-900 rounded-xl hover:bg-gray-100">
+                <SelectTrigger className="w-full h-14 bg-[#2d2e33] border-[#4a4b52] text-gray-100 rounded-xl hover:bg-[#36373d]">
                   <SelectValue placeholder="Select data bundle">
                     {selectedBundle && bundles.find(b => b.code === selectedBundle) && (
                       <div className="flex items-center justify-between w-full pr-2 gap-2 min-w-0">
                         <span className="font-medium text-base truncate">
                           {bundles.find(b => b.code === selectedBundle)?.description}
                         </span>
-                        <span className="text-sm font-semibold text-gray-700 whitespace-nowrap flex-shrink-0">
+                        <span className="text-sm font-semibold text-gray-300 whitespace-nowrap flex-shrink-0">
                           ₦{parseFloat(bundles.find(b => b.code === selectedBundle)?.price || "0").toFixed(2)}
                         </span>
                       </div>
@@ -761,7 +760,7 @@ export function AirtimeSwapCard() {
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent
-                  className="bg-white border-gray-200 max-h-[300px] w-[var(--radix-select-trigger-width)]"
+                  className="bg-[#36373d] border-[#4a4b52] max-h-[300px] w-[var(--radix-select-trigger-width)]"
                   position="popper"
                   sideOffset={4}
                 >
@@ -769,11 +768,11 @@ export function AirtimeSwapCard() {
                     <SelectItem
                       key={bundle.code}
                       value={bundle.code}
-                      className="text-gray-900 cursor-pointer hover:bg-gray-50 py-3"
+                      className="text-gray-100 cursor-pointer hover:bg-[#2d2e33] py-3"
                     >
                       <div className="flex items-start justify-between w-full gap-2">
-                        <span className="font-medium text-sm flex-1 break-words leading-tight">{bundle.description}</span>
-                        <span className="text-sm font-semibold text-gray-700 whitespace-nowrap flex-shrink-0 ml-2">
+                        <span className="font-medium text-sm flex-1 break-words leading-tight text-gray-100">{bundle.description}</span>
+                        <span className="text-sm font-semibold text-gray-300 whitespace-nowrap flex-shrink-0 ml-2">
                           ₦{parseFloat(bundle.price).toFixed(2)}
                         </span>
                       </div>
@@ -782,8 +781,8 @@ export function AirtimeSwapCard() {
                 </SelectContent>
               </Select>
             ) : (
-              <div className="w-full h-14 bg-gray-50 border border-gray-200 rounded-xl flex items-center justify-center">
-                <span className="text-sm text-gray-500">No bundles available</span>
+              <div className="w-full h-14 bg-[#2d2e33] border border-[#4a4b52] rounded-xl flex items-center justify-center">
+                <span className="text-sm text-gray-400">No bundles available</span>
               </div>
             )}
             {!selectedBundle && selectedCategory === "data_bundle" && (
@@ -795,7 +794,7 @@ export function AirtimeSwapCard() {
         {/* Send Section */}
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <label className="text-sm text-gray-600">Send</label>
+            <label className="text-sm text-gray-300">Send</label>
             {selectedCategory !== "data_bundle" && (
               <button
                 type="button"
@@ -808,7 +807,7 @@ export function AirtimeSwapCard() {
                   }
                 }}
                 disabled={balanceAmount === 0 || isLoadingBalance}
-                className="text-xs text-gray-500 hover:text-gray-700 underline disabled:opacity-50 disabled:cursor-not-allowed"
+                className="text-xs text-gray-400 hover:text-gray-300 underline disabled:opacity-50 disabled:cursor-not-allowed"
                 title="Set maximum balance"
               >
                 Max
@@ -823,14 +822,14 @@ export function AirtimeSwapCard() {
               max={config.max_amount}
               placeholder="0"
               disabled={selectedCategory === "data_bundle"}
-              className="flex-1 bg-gray-50 border-gray-300 text-gray-900 text-2xl h-16 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-gray-100"
+              className="flex-1 bg-[#2d2e33] border-[#4a4b52] text-gray-100 text-2xl h-16 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-[#2d2e33]"
               {...register("amount")}
             />
             <Select
               value={selectedToken}
               onValueChange={(value) => setValue("token", value as SupportedToken)}
             >
-              <SelectTrigger className="w-[180px] h-16 bg-gray-50 border-gray-300 text-gray-900 rounded-xl">
+              <SelectTrigger className="w-[180px] h-16 bg-[#2d2e33] border-[#4a4b52] text-gray-100 rounded-xl">
                 <SelectValue>
                   <div className="flex items-center justify-between w-full pr-2">
                     <div className="flex items-center gap-2">
@@ -844,7 +843,7 @@ export function AirtimeSwapCard() {
                           if (balance) {
                             const balanceValue = parseFloat(balance.formatted);
                             return (
-                              <span className="text-xs text-gray-500 font-normal">
+                              <span className="text-xs text-gray-400 font-normal">
                                 {balanceValue === 0
                                   ? "0.00"
                                   : balanceValue < 0.01
@@ -863,8 +862,8 @@ export function AirtimeSwapCard() {
                   </div>
                 </SelectValue>
               </SelectTrigger>
-              <SelectContent className="bg-white border-gray-200">
-                <SelectItem value="USDC" className="text-gray-900">
+              <SelectContent className="bg-[#36373d] border-[#4a4b52]">
+                <SelectItem value="USDC" className="text-gray-100">
                   <div className="flex items-center justify-between w-full">
                     <span>USDC</span>
                     {isLoadingBalance ? (
@@ -876,7 +875,7 @@ export function AirtimeSwapCard() {
                         if (balance) {
                           const balanceValue = parseFloat(balance.formatted);
                           return (
-                            <span className="text-xs text-gray-500 ml-4">
+                            <span className="text-xs text-gray-400 ml-4">
                               {balanceValue === 0
                                 ? "0.00"
                                 : balanceValue < 0.01
@@ -893,7 +892,7 @@ export function AirtimeSwapCard() {
                     )}
                   </div>
                 </SelectItem>
-                <SelectItem value="USDT" className="text-gray-900">
+                <SelectItem value="USDT" className="text-gray-100">
                   <div className="flex items-center justify-between w-full">
                     <span>USDT</span>
                     {isLoadingBalance ? (
@@ -905,7 +904,7 @@ export function AirtimeSwapCard() {
                         if (balance) {
                           const balanceValue = parseFloat(balance.formatted);
                           return (
-                            <span className="text-xs text-gray-500 ml-4">
+                            <span className="text-xs text-gray-400 ml-4">
                               {balanceValue === 0
                                 ? "0.00"
                                 : balanceValue < 0.01
@@ -945,7 +944,7 @@ export function AirtimeSwapCard() {
         <div className="space-y-2">
           <div className="space-y-3">
             <div>
-              <label className="text-xs text-gray-500 mb-1 block">
+              <label className="text-xs text-gray-400 mb-1 block">
                 {selectedCategory === "airtime" || selectedCategory === "data_bundle"
                   ? "Phone Number"
                   : selectedCategory === "electricity"
@@ -965,7 +964,7 @@ export function AirtimeSwapCard() {
                         ? "Enter smart card number"
                         : "Enter account number"
                 }
-                className="w-full bg-gray-50 border-gray-300 text-gray-900 h-14 rounded-xl disabled:opacity-50"
+                className="w-full bg-[#2d2e33] border-[#4a4b52] text-gray-100 h-14 rounded-xl disabled:opacity-50"
                 disabled={!UTILITY_CATEGORIES.find(cat => cat.id === selectedCategory)?.enabled}
                 {...register("phoneNumber")}
               />
@@ -974,9 +973,9 @@ export function AirtimeSwapCard() {
               <p className="text-sm text-red-600">{errors.phoneNumber.message}</p>
             )}
             {ngnAmount && (
-              <div className="text-center py-3 bg-gray-50 rounded-xl border border-gray-200">
-                <p className="text-sm text-gray-600 mb-1">You will receive</p>
-                <p className="text-xl font-semibold text-gray-900">
+              <div className="text-center py-3 bg-[#2d2e33] rounded-xl border border-[#4a4b52]">
+                <p className="text-sm text-gray-400 mb-1">You will receive</p>
+                <p className="text-xl font-semibold text-gray-100">
                   {(() => {
                     // For data bundle, extract and show the data size from bundle description
                     if (selectedCategory === "data_bundle" && selectedBundle) {
@@ -1028,7 +1027,7 @@ export function AirtimeSwapCard() {
             // Validate bundle code for data bundle
             (selectedCategory === "data_bundle" && !selectedBundle)
           }
-          className="w-full h-14 bg-gray-900 hover:bg-gray-800 text-white rounded-xl text-lg font-semibold border border-gray-900 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full h-14 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-lg font-semibold border border-purple-600 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {!authenticated ? (
             <>

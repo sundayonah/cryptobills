@@ -142,7 +142,7 @@ export function NetworksDropdown() {
         value={selectedNetwork.id.toString()}
         onValueChange={handleNetworkChange}
       >
-        <SelectTrigger className="w-[140px] bg-white border-gray-200 text-gray-900 hover:bg-gray-50">
+        <SelectTrigger className="w-[140px] bg-[#36373d] border-[#4a4b52] text-gray-200 hover:bg-[#404149]">
           <SelectValue>
             <span className="flex items-center gap-2">
               <span className="text-sm font-medium">{selectedNetwork.name}</span>
@@ -158,7 +158,7 @@ export function NetworksDropdown() {
             >
               <div className="flex items-center gap-2">
                 <span className="font-medium">{network.name}</span>
-                <span className="text-xs text-gray-500">
+                <span className="text-xs text-gray-400">
                   ({network.nativeCurrency.symbol})
                 </span>
               </div>

@@ -39,14 +39,14 @@ export function Loading({
                     ease: "linear",
                 }}
             >
-                <Loader2 className={cn(sizeClasses[size], "text-gray-600")} />
+                <Loader2 className={cn(sizeClasses[size], "text-gray-400")} />
             </motion.div>
             {text && (
                 <motion.p
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     transition={{ delay: 0.2 }}
-                    className={cn("text-gray-500 font-medium", textSizeClasses[size])}
+                    className={cn("text-gray-300 font-medium", textSizeClasses[size])}
                 >
                     {text}
                 </motion.p>
@@ -56,7 +56,7 @@ export function Loading({
 
     if (fullScreen) {
         return (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-sm">
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#2d2e33]/80 backdrop-blur-sm">
                 {content}
             </div>
         );
@@ -115,7 +115,7 @@ export function LoadingSkeleton({
                         ease: "easeInOut",
                         delay: i * 0.1,
                     }}
-                    className={cn("bg-gray-200 rounded", className)}
+                    className={cn("bg-[#36373d] rounded", className)}
                 />
             ))}
         </>
@@ -147,7 +147,7 @@ export function TitleSkeleton() {
 // Skeleton loader for the airtime swap form
 export function AirtimeFormSkeleton() {
     return (
-        <div className="bg-white rounded-2xl p-6 border border-gray-200 shadow-lg space-y-4">
+        <div className="bg-[#36373d] rounded-2xl p-6 border border-[#4a4b52] shadow-lg space-y-4">
             {/* Service Type Skeleton */}
             <div className="space-y-2">
                 <LoadingSkeleton className="h-4 w-24" />
@@ -157,7 +157,7 @@ export function AirtimeFormSkeleton() {
             {/* Network Skeleton */}
             <div className="space-y-2">
                 <LoadingSkeleton className="h-4 w-20" />
-                <LoadingSkeleton className="h-14 w-full rounded-xl bg-purple-50" />
+                <LoadingSkeleton className="h-14 w-full rounded-xl bg-[#2d2e33]" />
             </div>
 
             {/* Send Section Skeleton */}
@@ -179,7 +179,7 @@ export function AirtimeFormSkeleton() {
             </div>
 
             {/* Receive Amount Skeleton */}
-            <div className="py-3 bg-gray-50 rounded-xl border border-gray-200">
+            <div className="py-3 bg-[#2d2e33] rounded-xl border border-[#4a4b52]">
                 <LoadingSkeleton className="h-3 w-32 mx-auto mb-2" />
                 <LoadingSkeleton className="h-6 w-40 mx-auto" />
             </div>
