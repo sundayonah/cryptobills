@@ -233,6 +233,7 @@ export function BalanceProvider({ children }: { children: ReactNode }) {
         42161,  // Arbitrum Mainnet
         8453,   // Base Mainnet
         84532,  // Base Sepolia Testnet
+        // 56,     // BSC (Binance Smart Chain) Mainnet - temporarily commented out
       ];
       if (!supportedChainIds.includes(chainId)) {
         // Silently skip unsupported chains
@@ -336,6 +337,7 @@ function getRpcUrlForChain(chainId: number): string | null {
     42161: "https://arb1.arbitrum.io/rpc", // Arbitrum Mainnet
     8453: "https://mainnet.base.org", // Base Mainnet
     84532: "https://sepolia.base.org", // Base Sepolia Testnet
+    // 56: "https://bsc-dataseed.binance.org", // BSC (Binance Smart Chain) Mainnet - temporarily commented out
   };
   return rpcUrls[chainId] || null;
 }

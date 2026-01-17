@@ -75,11 +75,15 @@ export async function convertToNGN(
       return Math.round(amount * rate);
     }
 
-    // For amounts >= 0.5, use direct API call with specific amount
+    // For amounts >= 0.5, try direct API call, but verify the result
     // PayCrest API endpoint: /v1/rates/{token}/{amount}/ngn
-    // Returns NGN amount for the user's specific token amount
+    // NOTE: Some PayCrest endpoints may return rate for 1 token instead of converted amount
     const tokenLower = token.toLowerCase();
     const url = `${config.paycrest_rate_api}/${tokenLower}/${amount}/ngn`;
+
+    // Get rate first for verification
+    const rate = await getExchangeRate(token);
+    const expectedAmount = amount * rate;
 
     const response = await fetch(url, {
       method: 'GET',
@@ -89,22 +93,35 @@ export async function convertToNGN(
     });
 
     if (!response.ok) {
-      // If API fails, fallback to rate calculation
-      const rate = await getExchangeRate(token);
-      return Math.round(amount * rate);
+      // If API fails, use rate calculation
+      return Math.round(expectedAmount);
     }
 
     const data: PayCrestResponse = await response.json();
 
     if (data.status === 'success' && data.data) {
-      // data.data contains NGN amount for the user's token amount
-      const ngnAmount = parseFloat(data.data);
-      if (isNaN(ngnAmount) || ngnAmount <= 0) {
-        throw new Error('Invalid rate data from API');
+      const apiNgnAmount = parseFloat(data.data);
+      if (isNaN(apiNgnAmount) || apiNgnAmount <= 0) {
+        // Invalid response, use rate calculation
+        return Math.round(expectedAmount);
       }
-      return Math.round(ngnAmount);
+
+      // Verify API response: If it's suspiciously close to the rate for 1 token (instead of amount for 0.X),
+      // it means API returned rate instead of converted amount
+      // Use rate calculation if API result doesn't make sense
+      const differenceFromRate = Math.abs(apiNgnAmount - rate);
+      const differenceFromExpected = Math.abs(apiNgnAmount - expectedAmount);
+
+      // If API value is closer to rate than to expected amount, it's likely returning rate instead of amount
+      if (differenceFromRate < differenceFromExpected && differenceFromRate < rate * 0.1) {
+        // API likely returned rate for 1 token, use our calculation instead
+        return Math.round(expectedAmount);
+      }
+
+      return Math.round(apiNgnAmount);
     } else {
-      throw new Error(data.message || 'Invalid API response');
+      // API error, use rate calculation
+      return Math.round(expectedAmount);
     }
   } catch (error) {
     console.error(`Error converting ${tokenAmount} ${token} to NGN:`, error);

@@ -8,6 +8,7 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 model User {
@@ -57,13 +58,27 @@ model Transaction {
   phoneNumber   String? // For airtime, data bundle
   accountNumber String? // For cable tv, electricity
   meterNumber   String? // For electricity
+  meterType     String? // For electricity: 'prepaid' | 'postpaid'
   decoderNumber String? // For cable tv
+
+  // Customer details (for electricity, cable tv)
+  customerName    String?
+  customerAddress String?
 
   // Amount details
   serviceAmount Int // Amount sent for the service (in NGN or units)
+  chargedAmount Float? // Actual amount charged (may differ from serviceAmount due to commission)
+  commission    Float? // Commission charged
+
+  // Electricity-specific fields
+  electricityToken String? // Electricity token (for prepaid meters)
+  electricityUnit  String? // Units purchased
+  bonusToken       String? // Bonus token if any
+  biller           String? // Biller name (e.g., "Ikeja Electricity - IKEDC")
+  customerId       String? // Customer ID from PayBeta
 
   // PayBeta integration
-  paybetaReference     String  @unique
+  paybetaReference     String @unique
   paybetaTransactionId String?
 
   // Status tracking

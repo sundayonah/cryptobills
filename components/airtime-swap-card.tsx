@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { usePrivy } from "@privy-io/react-auth";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { copyToClipboard } from "@/lib/utils";
 import config from "@/lib/config";
 import { getTokenConfigFromProvider } from "@/lib/token-utils";
 import { processProviders } from "@/lib/providers";
@@ -28,7 +29,8 @@ import { processWalletPayment, getWalletChainId, waitForTransactionConfirmation 
 import { convertToNGN } from "@/lib/exchange";
 import type { SupportedToken, AirtimeService, AirtimeProvider, UtilityBillCategory, DataBundleService, DataBundlePackage } from "@/types";
 import { motion } from "framer-motion";
-import { Loader2, ArrowDown, Wallet } from "lucide-react";
+import { Loader2, ArrowDown, Wallet, X, Copy, Share2, Check } from "lucide-react";
+import { getTokenLogoPath } from "@/lib/network-utils";
 import { Loading, LoadingSpinner, AirtimeFormSkeleton } from "@/components/ui/loading";
 import Image from "next/image";
 
@@ -42,8 +44,9 @@ const airtimeSchema = z.object({
     { message: `Amount must be between $${config.min_amount} and $${config.max_amount}` }
   ),
   phoneNumber: z.string().min(1, "Account/Phone number is required"),
-  service: z.enum(["mtn_vtu", "glo_vtu", "airtel_vtu", "9mobile_vtu", "mtn_data", "glo_data", "airtel_data", "9mobile_data"]),
+  service: z.string().min(1, "Service is required"), // Allow any string for flexibility (airtime, data, electricity, etc.)
   bundleCode: z.string().optional(), // Required for data bundle
+  meterType: z.enum(["prepaid", "postpaid"]).optional(), // Required for electricity
 });
 
 type AirtimeFormData = z.infer<typeof airtimeSchema>;
@@ -68,6 +71,33 @@ export function AirtimeSwapCard() {
   const [bundles, setBundles] = useState<DataBundlePackage[]>([]);
   const [loadingBundles, setLoadingBundles] = useState(false);
   const [selectedBundle, setSelectedBundle] = useState<string>("");
+  const [meterType, setMeterType] = useState<"prepaid" | "postpaid">("prepaid");
+  const [meterValidation, setMeterValidation] = useState<{
+    customerName: string;
+    customerAddress: string;
+    meterNumber: string;
+    meterType: string;
+  } | null>(null);
+  const [validatingMeter, setValidatingMeter] = useState(false);
+  const [receipt, setReceipt] = useState<{
+    reference: string;
+    amount: number;
+    biller: string;
+    customerId: string;
+    token?: string;
+    unit?: string;
+    bonusToken?: string;
+    transactionDate: string;
+    transactionId: string;
+    category: string;
+    recipient: string;
+    customerName?: string;
+    customerAddress?: string;
+    meterType?: string;
+    meterNumber?: string;
+  } | null>(null);
+  const [tokenCopied, setTokenCopied] = useState(false);
+  const [showReceipt, setShowReceipt] = useState(false);
 
   const {
     register,
@@ -135,6 +165,23 @@ export function AirtimeSwapCard() {
               setValue("service", processed[0].service);
               // Fetch bundles for the first provider
               fetchBundles(processed[0].service as DataBundleService);
+            } else {
+              setProviders([]);
+            }
+          } else if (selectedCategory === "electricity") {
+            // For electricity, process providers that have a slug field (or derive from name)
+            const processed = data.data
+              .filter((provider: any) => provider.status !== false)
+              .map((provider: any) => ({
+                ...provider,
+                service: provider.slug || provider.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, ''),
+              }));
+            setProviders(processed as Array<AirtimeProvider & { service: string }>);
+            // Set default service if available
+            if (processed.length > 0) {
+              setValue("service", processed[0].service);
+              // Reset meter validation when provider changes
+              setMeterValidation(null);
             } else {
               setProviders([]);
             }
@@ -243,6 +290,77 @@ export function AirtimeSwapCard() {
     }
   };
 
+  // Validate meter for electricity
+  const validateMeter = useCallback(async (service: string, meterNumber: string, meterType: "prepaid" | "postpaid") => {
+    if (!meterNumber || !meterType) {
+      return null;
+    }
+
+    setValidatingMeter(true);
+    try {
+      const response = await fetch("/api/electricity/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          service,
+          meterNumber,
+          meterType,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.status === "successful" && data.data) {
+        setMeterValidation({
+          customerName: data.data.customerName,
+          customerAddress: data.data.customerAddress,
+          meterNumber: data.data.meterNumber,
+          meterType: data.data.meterType,
+        });
+        return data.data;
+      } else {
+        toast({
+          title: "Validation Failed",
+          description: data.message || "Failed to validate meter number",
+          variant: "destructive",
+        });
+        setMeterValidation(null);
+        return null;
+      }
+    } catch (error) {
+      console.error("Error validating meter:", error);
+      toast({
+        title: "Error",
+        description: "Failed to validate meter number. Please try again.",
+        variant: "destructive",
+      });
+      setMeterValidation(null);
+      return null;
+    } finally {
+      setValidatingMeter(false);
+    }
+  }, [toast]);
+
+  // Auto-validate meter number for electricity when meter number, service, and meter type are filled
+  useEffect(() => {
+    if (
+      selectedCategory === "electricity" &&
+      phoneNumber &&
+      phoneNumber.trim().length >= 10 && // Minimum meter number length
+      selectedService &&
+      meterType &&
+      !meterValidation &&
+      !validatingMeter
+    ) {
+      // Debounce validation - wait 1 second after user stops typing
+      const timer = setTimeout(() => {
+        validateMeter(selectedService, phoneNumber.trim(), meterType);
+      }, 1000);
+
+      return () => clearTimeout(timer);
+    }
+  }, [phoneNumber, selectedService, meterType, selectedCategory, meterValidation, validatingMeter, validateMeter]);
+
   // Watch for service changes in data bundle category
   useEffect(() => {
     if (selectedCategory === "data_bundle" && selectedService) {
@@ -252,8 +370,11 @@ export function AirtimeSwapCard() {
       setSelectedBundle("");
       setValue("bundleCode", "");
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedService, selectedCategory]);
+    // Reset meter validation when category changes
+    if (selectedCategory !== "electricity") {
+      setMeterValidation(null);
+    }
+  }, [selectedService, selectedCategory, setValue]);
 
   // Fetch exchange rate
   useEffect(() => {
@@ -306,6 +427,29 @@ export function AirtimeSwapCard() {
         variant: "destructive",
       });
       return;
+    }
+
+    // Validate meter for electricity
+    if (selectedCategory === "electricity") {
+      if (!meterType) {
+        toast({
+          title: "Meter Type Required",
+          description: "Please select meter type (Prepaid or Postpaid)",
+          variant: "destructive",
+        });
+        return;
+      }
+      if (!meterValidation) {
+        toast({
+          title: "Meter Not Validated",
+          description: "Please validate your meter number first",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Validate minimum amount for electricity (1000 NGN minimum)
+      // We'll validate this after NGN conversion in the try block below
     }
 
     // Validate bundle code for data bundle
@@ -369,15 +513,6 @@ export function AirtimeSwapCard() {
       return;
     }
 
-    // Validate category is supported
-    if (selectedCategory !== "airtime" && selectedCategory !== "data_bundle") {
-      toast({
-        title: "Service Not Available",
-        description: "This service is not yet available. Please select Airtime or Data Bundle.",
-        variant: "destructive",
-      });
-      return;
-    }
 
     setIsProcessing(true);
 
@@ -427,9 +562,32 @@ export function AirtimeSwapCard() {
       let ngnAmount: number;
       try {
         ngnAmount = await convertToNGN(data.amount, data.token);
+        // Update the displayed amount to match what will actually be charged
+        // This ensures the user sees the actual amount that will be processed
+        setNgnAmount(ngnAmount);
       } catch (error: any) {
         throw new Error(`Failed to get exchange rate: ${error.message}. Please try again later.`);
       }
+
+      // Validate minimum amount for electricity (PayBeta requires minimum 1000 NGN)
+      if (selectedCategory === "electricity") {
+        const ELECTRICITY_MIN_AMOUNT_NGN = 1000;
+        const roundedNgnAmount = Math.round(ngnAmount);
+        if (roundedNgnAmount < ELECTRICITY_MIN_AMOUNT_NGN) {
+          toast({
+            title: "Amount Too Low",
+            description: `Electricity purchases require a minimum of ₦${ELECTRICITY_MIN_AMOUNT_NGN.toLocaleString()}. Your amount (₦${roundedNgnAmount.toLocaleString()}) is too low.`,
+            variant: "destructive",
+          });
+          setIsProcessing(false);
+          return;
+        }
+      }
+
+      // Show user the actual amount that will be charged (in case it differs from previously displayed amount)
+      const previouslyDisplayedAmount = ngnAmount !== null ? ngnAmount : 0;
+      // Note: We've already updated setNgnAmount above, so this comparison is for the old value
+      // The display will update automatically via the useEffect that watches ngnAmount
 
       // ============================================
       // STEP 4: VALIDATE PAYBETA BALANCE (BEFORE TRANSFER)
@@ -532,7 +690,6 @@ export function AirtimeSwapCard() {
         privyUserId: user?.id,
         token: data.token,
         tokenAmount: data.amount,
-        phoneNumber: data.phoneNumber,
         service: data.service,
         serviceName: serviceName,
         paymentTxHash: txHash,
@@ -540,9 +697,22 @@ export function AirtimeSwapCard() {
         networkChainId: chainIdNum,
       };
 
-      // Add bundle code for data bundle
+      // Add category-specific fields
+      if (selectedCategory === "airtime" || selectedCategory === "data_bundle") {
+        purchaseBody.phoneNumber = data.phoneNumber;
+      }
+
       if (selectedCategory === "data_bundle" && data.bundleCode) {
         purchaseBody.code = data.bundleCode;
+      }
+
+      if (selectedCategory === "electricity") {
+        purchaseBody.meterNumber = data.phoneNumber; // Reuse phoneNumber field for meter number
+        purchaseBody.meterType = meterType;
+        if (meterValidation) {
+          purchaseBody.customerName = meterValidation.customerName;
+          purchaseBody.customerAddress = meterValidation.customerAddress;
+        }
       }
 
       const purchaseResponse = await fetch(purchaseEndpoint, {
@@ -555,13 +725,45 @@ export function AirtimeSwapCard() {
 
       if (purchaseResponse.ok && purchaseResult.success) {
         const categoryName = UTILITY_CATEGORIES.find(cat => cat.id === selectedCategory)?.name || 'Service';
-        toast({
-          title: "Success!",
-          description: `${categoryName} sent to ${data.phoneNumber}. Transaction ID: ${purchaseResult.transaction.paybetaReference}`,
-        });
+        const recipient = selectedCategory === "electricity"
+          ? data.phoneNumber // Meter number
+          : data.phoneNumber; // Phone number
+
+        // Store receipt data for electricity (contains token and unit)
+        if (selectedCategory === "electricity" && purchaseResult.transaction) {
+          // Extract receipt data from API response (from PayBeta directly)
+          const receiptData = {
+            reference: purchaseResult.transaction.paybetaReference || "",
+            amount: purchaseResult.transaction.amount || Math.round(ngnAmount),
+            biller: purchaseResult.transaction.biller || serviceName,
+            customerId: purchaseResult.transaction.customerId || recipient,
+            token: purchaseResult.transaction.token,
+            unit: purchaseResult.transaction.unit,
+            bonusToken: purchaseResult.transaction.bonusToken || "",
+            transactionDate: purchaseResult.transaction.transactionDate || new Date().toLocaleString(),
+            transactionId: purchaseResult.transaction.paybetaTransactionId || "",
+            category: categoryName,
+            recipient: recipient,
+            customerName: meterValidation?.customerName,
+            customerAddress: meterValidation?.customerAddress,
+            meterType: meterType === "prepaid" ? "Prepaid" : "Postpaid",
+            meterNumber: data.phoneNumber, // Meter number
+          };
+          setReceipt(receiptData);
+          setShowReceipt(true);
+        } else {
+          toast({
+            title: "Success!",
+            description: `${categoryName} purchased for ${recipient}. Transaction ID: ${purchaseResult.transaction.paybetaReference}`,
+          });
+        }
+
         // Reset form
         setValue("amount", "");
         setValue("phoneNumber", "");
+        if (selectedCategory === "electricity") {
+          setMeterValidation(null);
+        }
       } else {
         const categoryName = UTILITY_CATEGORIES.find(cat => cat.id === selectedCategory)?.name || 'Service';
         throw new Error(purchaseResult.error || `Failed to purchase ${categoryName.toLowerCase()}`);
@@ -612,7 +814,7 @@ export function AirtimeSwapCard() {
               setSelectedBundle("");
             }}
           >
-            <SelectTrigger className="w-full h-12 bg-gray-50 border-gray-300 text-gray-900 rounded-xl">
+            <SelectTrigger className="w-full h-10 bg-gray-50 border-gray-300 text-gray-900 rounded-xl">
               <SelectValue />
             </SelectTrigger>
             <SelectContent className="bg-white border-gray-200">
@@ -635,12 +837,12 @@ export function AirtimeSwapCard() {
           </Select>
         </div>
 
-        {/* ProviderSelector - Show for airtime and data bundle */}
-        {(selectedCategory === "airtime" || selectedCategory === "data_bundle") && (
+        {/* ProviderSelector - Show for airtime, data bundle, and electricity */}
+        {(selectedCategory === "airtime" || selectedCategory === "data_bundle" || selectedCategory === "electricity") && (
           <div className="space-y-2">
             <label className="text-sm text-gray-600">Provider</label>
             {loadingProviders ? (
-              <div className="w-full h-14 bg-purple-50 border border-purple-200 rounded-xl flex items-center justify-center">
+              <div className="w-full h-12 bg-purple-50 border border-purple-200 rounded-xl flex items-center justify-center">
                 <LoadingSpinner size="sm" className="text-purple-600" />
                 <span className="ml-2 text-sm text-purple-600">Loading providers...</span>
               </div>
@@ -648,9 +850,13 @@ export function AirtimeSwapCard() {
               <Select
                 value={selectedService}
                 onValueChange={(value) => {
-                  setValue("service", value as AirtimeService | DataBundleService);
+                  setValue("service", value as AirtimeService | DataBundleService | string);
                   if (selectedCategory === "data_bundle") {
                     fetchBundles(value as DataBundleService);
+                  }
+                  if (selectedCategory === "electricity") {
+                    // Reset meter validation when provider changes
+                    setMeterValidation(null);
                   }
                 }}
                 disabled={providers.length === 0 || !UTILITY_CATEGORIES.find(cat => cat.id === selectedCategory)?.enabled}
@@ -662,7 +868,7 @@ export function AirtimeSwapCard() {
                       : "Select provider"
                   }>
                     {(() => {
-                      if (selectedService && providers.length > 0 && (selectedCategory === "airtime" || selectedCategory === "data_bundle")) {
+                      if (selectedService && providers.length > 0 && (selectedCategory === "airtime" || selectedCategory === "data_bundle" || selectedCategory === "electricity")) {
                         const provider = providers.find(p => p.service === selectedService);
                         if (provider) {
                           return (
@@ -678,7 +884,7 @@ export function AirtimeSwapCard() {
                                   e.currentTarget.style.display = 'none';
                                 }}
                               />
-                              <span>{provider.name.replace(' VTU', '').replace(' Data', '')}</span>
+                              <span>{provider.name.replace(' VTU', '').replace(' Data', '').replace(' Electricity', '')}</span>
                             </div>
                           );
                         }
@@ -706,7 +912,7 @@ export function AirtimeSwapCard() {
                             e.currentTarget.style.display = 'none';
                           }}
                         />
-                        <span>{provider.name.replace(' VTU', '').replace(' Data', '')}</span>
+                        <span>{provider.name.replace(' VTU', '').replace(' Data', '').replace(' Electricity', '')}</span>
                       </div>
                     </SelectItem>
                   ))}
@@ -823,17 +1029,24 @@ export function AirtimeSwapCard() {
               max={config.max_amount}
               placeholder="0"
               disabled={selectedCategory === "data_bundle"}
-              className="flex-1 bg-gray-50 border-gray-300 text-gray-900 text-2xl h-16 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-gray-100"
+              className="flex-1 bg-gray-50 border-gray-300 text-gray-900 text-2xl h-12 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-gray-100"
               {...register("amount")}
             />
             <Select
               value={selectedToken}
               onValueChange={(value) => setValue("token", value as SupportedToken)}
             >
-              <SelectTrigger className="w-[180px] h-16 bg-gray-50 border-gray-300 text-gray-900 rounded-xl">
+              <SelectTrigger className="w-[180px] h-12 bg-gray-50 border-gray-300 text-gray-900 rounded-xl">
                 <SelectValue>
                   <div className="flex items-center justify-between w-full pr-2">
                     <div className="flex items-center gap-2">
+                      <Image
+                        src={getTokenLogoPath(selectedToken)}
+                        alt={selectedToken}
+                        width={20}
+                        height={20}
+                        className="rounded-full flex-shrink-0"
+                      />
                       <span className="font-medium">{selectedToken}</span>
                       {isLoadingBalance ? (
                         <Loader2 className="h-3 w-3 animate-spin text-gray-400" />
@@ -866,7 +1079,16 @@ export function AirtimeSwapCard() {
               <SelectContent className="bg-white border-gray-200">
                 <SelectItem value="USDC" className="text-gray-900">
                   <div className="flex items-center justify-between w-full">
-                    <span>USDC</span>
+                    <div className="flex items-center gap-2">
+                      <Image
+                        src={getTokenLogoPath("USDC")}
+                        alt="USDC"
+                        width={20}
+                        height={20}
+                        className="rounded-full flex-shrink-0"
+                      />
+                      <span>USDC</span>
+                    </div>
                     {isLoadingBalance ? (
                       <Loader2 className="h-3 w-3 animate-spin text-gray-400 ml-4" />
                     ) : (
@@ -895,7 +1117,16 @@ export function AirtimeSwapCard() {
                 </SelectItem>
                 <SelectItem value="USDT" className="text-gray-900">
                   <div className="flex items-center justify-between w-full">
-                    <span>USDT</span>
+                    <div className="flex items-center gap-2">
+                      <Image
+                        src={getTokenLogoPath("USDT")}
+                        alt="USDT"
+                        width={20}
+                        height={20}
+                        className="rounded-full flex-shrink-0"
+                      />
+                      <span>USDT</span>
+                    </div>
                     {isLoadingBalance ? (
                       <Loader2 className="h-3 w-3 animate-spin text-gray-400 ml-4" />
                     ) : (
@@ -939,6 +1170,12 @@ export function AirtimeSwapCard() {
             }
             return null;
           })()}
+          {/* Electricity minimum amount validation */}
+          {selectedCategory === "electricity" && ngnAmount !== null && ngnAmount < 1000 && selectedAmount && !errors.amount && (
+            <p className="text-sm text-red-600">
+              Electricity purchases require a minimum of ₦1,000. Your amount (₦{ngnAmount.toLocaleString()}) is too low.
+            </p>
+          )}
         </div>
 
         {/* Receive Section */}
@@ -965,7 +1202,7 @@ export function AirtimeSwapCard() {
                         ? "Enter smart card number"
                         : "Enter account number"
                 }
-                className="w-full bg-gray-50 border-gray-300 text-gray-900 h-14 rounded-xl disabled:opacity-50"
+                className="w-full bg-gray-50 border-gray-300 text-gray-900 h-12 rounded-xl disabled:opacity-50"
                 disabled={!UTILITY_CATEGORIES.find(cat => cat.id === selectedCategory)?.enabled}
                 {...register("phoneNumber")}
               />
@@ -973,6 +1210,54 @@ export function AirtimeSwapCard() {
             {errors.phoneNumber && (
               <p className="text-sm text-red-600">{errors.phoneNumber.message}</p>
             )}
+
+            {/* Meter Type Selector for Electricity */}
+            {selectedCategory === "electricity" && (
+              <div className="space-y-2">
+                <label className="text-xs text-gray-500 mb-1 block">Meter Type</label>
+                <Select
+                  value={meterType}
+                  onValueChange={(value) => {
+                    setMeterType(value as "prepaid" | "postpaid");
+                    setMeterValidation(null); // Reset validation when meter type changes
+                  }}
+                >
+                  <SelectTrigger className="w-full bg-gray-50 border-gray-300 text-gray-900 h-12 rounded-xl">
+                    <SelectValue>
+                      <span className="capitalize">{meterType}</span>
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent className="bg-white border-gray-200">
+                    <SelectItem value="prepaid" className="text-gray-900">Prepaid</SelectItem>
+                    <SelectItem value="postpaid" className="text-gray-900">Postpaid</SelectItem>
+                  </SelectContent>
+                </Select>
+                {/* Auto-validation status */}
+                {validatingMeter && (
+                  <div className="w-full h-12 bg-blue-50 border border-blue-200 rounded-xl flex items-center justify-center">
+                    <Loader2 className="h-4 w-4 animate-spin text-blue-600 mr-2" />
+                    <span className="text-sm text-blue-600">Validating meter...</span>
+                  </div>
+                )}
+                {/* Meter Validation Info */}
+                {meterValidation && (
+                  <div className="p-3 bg-green-50 border border-green-200 rounded-xl">
+                    <p className="text-sm font-semibold text-green-900 mb-1">Meter Validated</p>
+                    <p className="text-xs text-green-700">Name: {meterValidation.customerName}</p>
+                    <p className="text-xs text-green-700">Address: {meterValidation.customerAddress}</p>
+                    <Button
+                      type="button"
+                      onClick={() => setMeterValidation(null)}
+                      variant="outline"
+                      className="mt-2 h-8 text-xs"
+                    >
+                      Re-validate
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+
             {ngnAmount && (
               <div className="text-center py-3 bg-gray-50 rounded-xl border border-gray-200">
                 <p className="text-sm text-gray-600 mb-1">You will receive</p>
@@ -1026,7 +1311,11 @@ export function AirtimeSwapCard() {
             // Validate Nigerian phone number format for airtime and data bundle
             ((selectedCategory === "airtime" || selectedCategory === "data_bundle") && !/^0\d{10}$/.test(phoneNumber || "")) ||
             // Validate bundle code for data bundle
-            (selectedCategory === "data_bundle" && !selectedBundle)
+            (selectedCategory === "data_bundle" && !selectedBundle) ||
+            // Validate meter for electricity
+            (selectedCategory === "electricity" && !meterValidation) ||
+            // Validate minimum NGN amount for electricity (₦1,000 minimum)
+            (selectedCategory === "electricity" && ngnAmount !== null && ngnAmount < 1000)
           }
           className="w-full h-14 bg-gray-900 hover:bg-gray-800 text-white rounded-xl text-lg font-semibold border border-gray-900 disabled:opacity-50 disabled:cursor-not-allowed"
         >
@@ -1052,6 +1341,194 @@ export function AirtimeSwapCard() {
           )}
         </Button>
       </form>
+
+      {/* Receipt Modal */}
+      {showReceipt && receipt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto shadow-2xl"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-2xl font-bold text-gray-900">Transaction Receipt</h2>
+              <button
+                onClick={() => {
+                  setShowReceipt(false);
+                  setReceipt(null);
+                }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="h-6 w-6" />
+              </button>
+            </div>
+
+            <div className="space-y-6" id="receipt-content">
+              {/* Header with Biller Logo and Amount */}
+              <div className="text-center space-y-2">
+                <div className="text-xl font-semibold text-gray-900">{receipt.biller}</div>
+                <div className="text-3xl font-bold text-gray-900">₦{receipt.amount.toLocaleString()}</div>
+                <div className="flex items-center justify-center gap-2 text-green-600">
+                  <Check className="h-5 w-5" />
+                  <span className="font-medium">Successful</span>
+                </div>
+              </div>
+
+              {/* Token with Copy Functionality */}
+              {receipt.token && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-600">Token</span>
+                  </div>
+                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 flex items-center justify-between gap-2">
+                    <p className="text-lg font-semibold text-gray-900 tracking-wider break-all font-mono flex-1">
+                      {receipt.token}
+                    </p>
+                    <button
+                      onClick={async () => {
+                        if (receipt.token) {
+                          const success = await copyToClipboard(receipt.token);
+                          if (success) {
+                            setTokenCopied(true);
+                            toast({
+                              title: "Copied!",
+                              description: "Token copied to clipboard",
+                            });
+                            setTimeout(() => setTokenCopied(false), 2000);
+                          } else {
+                            toast({
+                              title: "Failed to copy",
+                              description: "Please try again",
+                              variant: "destructive",
+                            });
+                          }
+                        }
+                      }}
+                      className="p-1.5 hover:bg-gray-200 rounded transition-colors flex-shrink-0"
+                      title="Copy token"
+                    >
+                      {tokenCopied ? (
+                        <Check className="h-4 w-4 text-green-600" />
+                      ) : (
+                        <Copy className="h-4 w-4 text-gray-500" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Transaction Details */}
+              <div className="space-y-3 border-t pt-4">
+                <h3 className="font-semibold text-gray-900 mb-3">Transaction Details</h3>
+                {receipt.meterType && (
+                  <div className="flex justify-between py-2 border-b border-gray-100">
+                    <span className="text-sm text-gray-600">Meter Type:</span>
+                    <span className="text-sm font-semibold text-gray-900">{receipt.meterType}</span>
+                  </div>
+                )}
+                {receipt.meterNumber && (
+                  <div className="flex justify-between py-2 border-b border-gray-100">
+                    <span className="text-sm text-gray-600">Meter Number:</span>
+                    <span className="text-sm font-semibold text-gray-900">{receipt.meterNumber}</span>
+                  </div>
+                )}
+                {receipt.customerName && (
+                  <div className="flex justify-between py-2 border-b border-gray-100">
+                    <span className="text-sm text-gray-600">Customer Name:</span>
+                    <span className="text-sm font-semibold text-gray-900 text-right max-w-[60%] break-words">{receipt.customerName}</span>
+                  </div>
+                )}
+                {receipt.customerAddress && (
+                  <div className="flex justify-between py-2 border-b border-gray-100">
+                    <span className="text-sm text-gray-600">Service Address:</span>
+                    <span className="text-sm font-semibold text-gray-900 text-right max-w-[60%] break-words">{receipt.customerAddress}</span>
+                  </div>
+                )}
+                {receipt.unit && (
+                  <div className="flex justify-between py-2 border-b border-gray-100">
+                    <span className="text-sm text-gray-600">Units Purchased:</span>
+                    <span className="text-sm font-semibold text-gray-900">{receipt.unit} kWh</span>
+                  </div>
+                )}
+                <div className="flex justify-between py-2 border-b border-gray-100">
+                  <span className="text-sm text-gray-600">Transaction No.:</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-mono text-gray-900">{receipt.transactionId}</span>
+                    <button
+                      onClick={async () => {
+                        const success = await copyToClipboard(receipt.transactionId);
+                        if (success) {
+                          toast({
+                            title: "Copied!",
+                            description: "Transaction ID copied to clipboard",
+                          });
+                        }
+                      }}
+                      className="p-1 hover:bg-gray-100 rounded transition-colors"
+                    >
+                      <Copy className="h-3 w-3 text-gray-500" />
+                    </button>
+                  </div>
+                </div>
+                <div className="flex justify-between py-2">
+                  <span className="text-sm text-gray-600">Transaction Date:</span>
+                  <span className="text-sm font-semibold text-gray-900">{receipt.transactionDate}</span>
+                </div>
+              </div>
+
+              {/* Action Button - Share as Image */}
+              <Button
+                type="button"
+                onClick={async () => {
+                  try {
+                    // Use Web Share API if available (mobile)
+                    if (navigator.share) {
+                      // For now, share as text. Later we can add image sharing
+                      const receiptText = `Electricity Token: ${receipt.token}\n` +
+                        `Amount: ₦${receipt.amount.toLocaleString()}\n` +
+                        `Meter: ${receipt.meterNumber || receipt.recipient}\n` +
+                        `Transaction ID: ${receipt.transactionId}\n` +
+                        `Date: ${receipt.transactionDate}`;
+
+                      await navigator.share({
+                        title: 'Electricity Purchase Receipt',
+                        text: receiptText,
+                      });
+                    } else {
+                      // Fallback: Copy receipt text
+                      const receiptText = `Electricity Token: ${receipt.token}\n` +
+                        `Amount: ₦${receipt.amount.toLocaleString()}\n` +
+                        `Meter: ${receipt.meterNumber || receipt.recipient}\n` +
+                        `Transaction ID: ${receipt.transactionId}\n` +
+                        `Date: ${receipt.transactionDate}`;
+
+                      const success = await copyToClipboard(receiptText);
+                      if (success) {
+                        toast({
+                          title: "Copied!",
+                          description: "Receipt details copied to clipboard",
+                        });
+                      } else {
+                        toast({
+                          title: "Failed to copy",
+                          description: "Please try again",
+                          variant: "destructive",
+                        });
+                      }
+                    }
+                  } catch (error) {
+                    console.error('Error sharing receipt:', error);
+                  }
+                }}
+                className="w-full bg-purple-600 hover:bg-purple-700 text-white"
+              >
+                <Share2 className="h-4 w-4 mr-2" />
+                Share as Image
+              </Button>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </motion.div>
   );
 }

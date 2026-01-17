@@ -12,6 +12,7 @@ export interface PurchaseRequest {
     phoneNumber?: string;
     accountNumber?: string;
     meterNumber?: string;
+    meterType?: 'prepaid' | 'postpaid'; // For Electricity
     decoderNumber?: string;
     service: string;
     amount: number;
@@ -20,6 +21,7 @@ export interface PurchaseRequest {
     bouquet?: string; // For Showmax
     smartCardNumber?: string; // For Cable TV
     customerName?: string; // For Electricity, Cable TV
+    customerAddress?: string; // For Electricity
     code?: string; // For Data Bundle (bundle code)
 }
 
@@ -95,15 +97,52 @@ async function purchaseCableTV(request: PurchaseRequest): Promise<PurchaseRespon
  * POST /electricity/purchase
  */
 async function purchaseElectricity(request: PurchaseRequest): Promise<PurchaseResponse> {
+    if (!request.meterNumber) {
+        throw new Error('Meter number is required for electricity purchase');
+    }
+    if (!request.meterType) {
+        throw new Error('Meter type (prepaid/postpaid) is required for electricity purchase');
+    }
+    if (!request.customerName) {
+        throw new Error('Customer name is required for electricity purchase');
+    }
+    if (!request.customerAddress) {
+        throw new Error('Customer address is required for electricity purchase');
+    }
+
     const paybeta = getPayBetaClient();
-    const response = await paybeta.api.post('/electricity/purchase', {
+
+    // Ensure amount is an integer (PayBeta requires integer)
+    const amountInteger = Math.round(request.amount);
+
+    // Ensure meterType is lowercase (PayBeta expects 'prepaid' or 'postpaid')
+    const meterTypeLower = request.meterType.toLowerCase();
+
+    const requestBody = {
         service: request.service,
         meterNumber: request.meterNumber,
-        amount: request.amount,
-        reference: request.reference,
+        meterType: meterTypeLower,
+        amount: amountInteger,
         customerName: request.customerName,
-    });
-    return response.data;
+        customerAddress: request.customerAddress,
+        reference: request.reference,
+    };
+
+    // Log request for debugging
+    if (process.env.NODE_ENV === 'development') {
+        console.log('[Electricity Purchase] Request body:', JSON.stringify(requestBody, null, 2));
+    }
+
+    try {
+        const response = await paybeta.api.post('/electricity/purchase', requestBody);
+        return response.data;
+    } catch (error: any) {
+        // Enhanced error logging
+        if (error.response?.data?.data?.errors) {
+            console.error('[Electricity Purchase] PayBeta validation errors:', JSON.stringify(error.response.data.data.errors, null, 2));
+        }
+        throw error;
+    }
 }
 
 /**
