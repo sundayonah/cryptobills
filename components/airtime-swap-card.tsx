@@ -65,7 +65,7 @@ export function AirtimeSwapCard() {
   const [exchangeRate, setExchangeRate] = useState<ExchangeRate | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [ngnAmount, setNgnAmount] = useState<number | null>(null);
-  const [providers, setProviders] = useState<Array<AirtimeProvider & { service: AirtimeService | DataBundleService }>>([]);
+  const [providers, setProviders] = useState<Array<AirtimeProvider & { service: AirtimeService | DataBundleService | string }>>([]);
   const [loadingProviders, setLoadingProviders] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState<UtilityBillCategory>("airtime");
   const [bundles, setBundles] = useState<DataBundlePackage[]>([]);
@@ -176,7 +176,7 @@ export function AirtimeSwapCard() {
                 ...provider,
                 service: provider.slug || provider.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, ''),
               }));
-            setProviders(processed as Array<AirtimeProvider & { service: string }>);
+            setProviders(processed as Array<AirtimeProvider & { service: AirtimeService | DataBundleService | string }>);
             // Set default service if available
             if (processed.length > 0) {
               setValue("service", processed[0].service);
