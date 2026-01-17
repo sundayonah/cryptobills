@@ -70,6 +70,18 @@ export const SUPPORTED_NETWORKS: Network[] = [
     },
     rpcUrl: 'https://sepolia.base.org',
   },
+  // BSC temporarily commented out due to Privy configuration requirements
+  // {
+  //   id: 56,
+  //   name: 'BSC',
+  //   chainId: 'eip155:56',
+  //   nativeCurrency: {
+  //     name: 'BNB',
+  //     symbol: 'BNB',
+  //     decimals: 18,
+  //   },
+  //   rpcUrl: 'https://bsc-dataseed.binance.org',
+  // },
 ];
 
 export function getNetworkById(id: number): Network | undefined {

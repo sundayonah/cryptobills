@@ -13,7 +13,7 @@ export default function Home() {
     <div className="min-h-screen bg-white text-gray-900">
       <Header />
 
-      <main className="container mx-auto px-4 py-12">
+      <main className="container mx-auto px-4 pt-32 md:pt-64 pb-12">
         {!ready ? (
           <TitleSkeleton />
         ) : (
@@ -21,12 +21,12 @@ export default function Home() {
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6 }}
-            className="text-center mb-12"
+            className="text-center mb-8 md:mb-12"
           >
-            <h1 className="text-6xl md:text-7xl font-bold mb-4">
-              <span className="text-gray-900">Change stablecoins</span>
+            <h1 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-bold mb-4">
+              <span className="text-gray-900">Pay utility bills</span>
               <br />
-              <span className="text-gray-600 italic font-serif">to airtime in seconds</span>
+              <span className="text-gray-600 italic font-serif">in seconds with stablecoins</span>
             </h1>
           </motion.div>
         )}

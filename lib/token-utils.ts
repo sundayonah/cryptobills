@@ -32,6 +32,12 @@ const TOKEN_ADDRESSES: Record<
         USDC: "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
         USDT: "0x2C6c7c00ACa9B9D8446d107367485079b0471706",
     },
+    // BSC temporarily commented out due to Privy configuration requirements
+    // 56: {
+    //     // BSC (Binance Smart Chain) Mainnet
+    //     USDC: "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d",
+    //     USDT: "0x55d398326f99059fF775485246999027B3197955",
+    // },
 };
 
 // Token decimals (same for all chains)

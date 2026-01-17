@@ -132,6 +132,58 @@ export interface DataBundlePurchaseResponse {
     };
 }
 
+// ============================================================================
+// Electricity Types
+// ============================================================================
+
+export type ElectricityService = string; // e.g., 'ikeja-electric', 'enugu-electric', 'abuja-electric'
+
+export interface ElectricityValidationRequest {
+    service: string;
+    meterNumber: string;
+    meterType: 'prepaid' | 'postpaid';
+}
+
+export interface ElectricityValidationResponse {
+    status: string;
+    message: string;
+    data?: {
+        customerName: string;
+        customerAddress: string;
+        meterNumber: string;
+        meterType: string;
+        minimumVendAmount: number;
+    };
+}
+
+export interface ElectricityPurchaseRequest {
+    service: string;
+    meterNumber: string;
+    meterType: 'prepaid' | 'postpaid';
+    amount: number;
+    customerName: string;
+    customerAddress: string;
+    reference: string;
+}
+
+export interface ElectricityPurchaseResponse {
+    status: string;
+    message: string;
+    data?: {
+        reference: string;
+        amount: number;
+        chargedAmount: number;
+        commission: number;
+        biller: string;
+        customerId: string;
+        token: string; // For prepaid meters
+        unit: string; // Units purchased
+        bonusToken: string;
+        transactionDate: string;
+        transactionId: string;
+    };
+}
+
 export interface PayBetaErrorResponse {
     status: string;
     message: string;

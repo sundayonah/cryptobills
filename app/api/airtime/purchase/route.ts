@@ -5,6 +5,7 @@ import { convertToNGN } from '@/lib/exchange';
 import config from '@/lib/config';
 import { getNetworkById } from '@/lib/networks';
 import { processPayment } from '@/lib/payment-processors';
+import { getCryptobilzClient } from '@/lib/paybeta';
 import type { SupportedToken, UtilityBillCategory } from '@/types';
 
 const purchaseSchema = z.object({
@@ -22,6 +23,7 @@ const purchaseSchema = z.object({
 });
 
 export async function POST(request: NextRequest) {
+  let transaction: any = null;
   try {
     const body = await request.json();
     const validated = purchaseSchema.parse(body);
@@ -37,6 +39,48 @@ export async function POST(request: NextRequest) {
     // Convert token amount to NGN
     const ngnAmount = await convertToNGN(validated.tokenAmount, validated.token as SupportedToken);
     const exchangeRate = ngnAmount / parseFloat(validated.tokenAmount);
+    const roundedNgnAmount = Math.round(ngnAmount);
+
+    // Check PayBeta wallet balance before processing
+    try {
+      const paybetaClient = getCryptobilzClient();
+      const balanceResponse = await paybetaClient.getWalletBalance();
+
+      if (balanceResponse.status !== 'successful' || !balanceResponse.data) {
+        return NextResponse.json(
+          {
+            error: 'Failed to verify PayBeta wallet balance',
+            details: balanceResponse.message || 'Unable to check balance',
+          },
+          { status: 503 }
+        );
+      }
+
+      const availableBalance = balanceResponse.data.availableBalance;
+
+      if (availableBalance < roundedNgnAmount) {
+        return NextResponse.json(
+          {
+            error: 'PayBeta has insufficient balance to process this transaction',
+            details: {
+              required: roundedNgnAmount,
+              available: availableBalance,
+              shortfall: roundedNgnAmount - availableBalance,
+            },
+          },
+          { status: 503 }
+        );
+      }
+    } catch (balanceError: any) {
+      console.error('Error checking PayBeta balance:', balanceError);
+      return NextResponse.json(
+        {
+          error: 'Failed to verify PayBeta wallet balance',
+          details: balanceError.message || 'Balance check failed',
+        },
+        { status: 503 }
+      );
+    }
 
     // Get network details if chainId provided
     const network = validated.networkChainId ? getNetworkById(validated.networkChainId) : null;
@@ -73,7 +117,7 @@ export async function POST(request: NextRequest) {
     const serviceName = validated.serviceName || serviceNameMap[validated.service] || validated.service;
 
     // Create transaction record with all details
-    const transaction = await prisma.transaction.create({
+    transaction = await prisma.transaction.create({
       data: {
         userId: user.id,
         walletAddress: validated.walletAddress,
@@ -88,7 +132,7 @@ export async function POST(request: NextRequest) {
         service: validated.service,
         serviceName,
         phoneNumber: validated.phoneNumber,
-        serviceAmount: Math.round(ngnAmount), // Amount in NGN (integer)
+        serviceAmount: roundedNgnAmount, // Amount in NGN (integer)
         paybetaReference: reference,
         status: 'payment_received',
         paymentReceivedAt: new Date(),
@@ -97,16 +141,33 @@ export async function POST(request: NextRequest) {
 
     // Process payment via dynamic payment processor
     // This routes to the appropriate PayBeta API endpoint based on category
-    const paymentResponse = await processPayment({
-      category: validated.category || 'airtime',
-      service: validated.service,
-      phoneNumber: validated.phoneNumber,
-      accountNumber: undefined, // Add when implementing other categories
-      meterNumber: undefined, // Add when implementing electricity
-      decoderNumber: undefined, // Add when implementing cable TV
-      amount: Math.round(ngnAmount), // Ensure integer
-      reference,
-    });
+    let paymentResponse;
+    try {
+      paymentResponse = await processPayment({
+        category: validated.category || 'airtime',
+        service: validated.service,
+        phoneNumber: validated.phoneNumber,
+        accountNumber: undefined, // Add when implementing other categories
+        meterNumber: undefined, // Add when implementing electricity
+        decoderNumber: undefined, // Add when implementing cable TV
+        amount: roundedNgnAmount, // Ensure integer
+        reference,
+      });
+    } catch (processError: any) {
+      // If processPayment throws, mark transaction as failed
+      console.error('Error processing payment:', processError);
+      await prisma.transaction.update({
+        where: { id: transaction.id },
+        data: {
+          status: 'failed',
+          errorMessage: processError.message || 'Payment processing failed',
+        },
+      });
+      return NextResponse.json(
+        { error: processError.message || 'Failed to process payment' },
+        { status: 500 }
+      );
+    }
 
     // Update transaction with PayBeta response
     if (paymentResponse.status === 'successful' && paymentResponse.data) {
@@ -148,6 +209,21 @@ export async function POST(request: NextRequest) {
     }
   } catch (error: any) {
     console.error('Purchase error:', error);
+
+    // Update transaction status to failed if it was created
+    if (transaction) {
+      try {
+        await prisma.transaction.update({
+          where: { id: transaction.id },
+          data: {
+            status: 'failed',
+            errorMessage: error.message || 'PayBeta API error: ' + (error.response?.data?.message || 'Unknown error'),
+          },
+        });
+      } catch (updateError) {
+        console.error('Failed to update transaction status:', updateError);
+      }
+    }
 
     if (error instanceof z.ZodError) {
       return NextResponse.json(

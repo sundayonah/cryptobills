@@ -16,6 +16,8 @@ export function PrivyProvider({ children }: { children: React.ReactNode }) {
           accentColor: "#676FFF",
           // logo: "", // Remove logo or set to a valid URL
         },
+        // Privy supports all EVM chains by default, so no need to specify supportedChains
+        // This prevents configuration errors with chain-specific settings
       }}
     >
       {children}

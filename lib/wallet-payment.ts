@@ -273,6 +273,7 @@ function getNetworkName(chainId: number): string {
         42161: 'Arbitrum',
         8453: 'Base',
         84532: 'Base Sepolia',
+        // 56: 'BSC', // temporarily commented out
     };
     return networkNames[chainId] || `Chain ${chainId}`;
 }

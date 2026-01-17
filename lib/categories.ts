@@ -25,17 +25,17 @@ export const UTILITY_CATEGORIES: CategoryConfig[] = [
     apiPath: '/data-bundle',
   },
   {
-    id: 'cable_tv',
-    name: 'Cable TV',
-    enabled: false,
-    apiPath: '/cable-tv',
-  },
-  {
     id: 'electricity',
     name: 'Electricity',
-    enabled: false,
+    enabled: true,
     apiPath: '/electricity',
   },
+    {
+      id: 'cable_tv',
+      name: 'Cable TV',
+      enabled: false,
+      apiPath: '/cable-tv',
+    },
   {
     id: 'showmax',
     name: 'Showmax',

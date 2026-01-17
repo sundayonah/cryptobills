@@ -80,7 +80,7 @@ function createAxiosInstance(apiKey: string): AxiosInstance {
 
   const instance = axios.create({
     baseURL,
-    timeout: 30000, // 30 seconds
+    timeout: 60000, // 60 seconds (increased to handle slow PayBeta responses)
     headers: {
       'Accept': 'application/json',
       'Content-Type': 'application/json',
