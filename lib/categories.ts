@@ -30,12 +30,12 @@ export const UTILITY_CATEGORIES: CategoryConfig[] = [
     enabled: true,
     apiPath: '/electricity',
   },
-    {
-      id: 'cable_tv',
-      name: 'Cable TV',
-      enabled: false,
-      apiPath: '/cable-tv',
-    },
+  {
+    id: 'cable_tv',
+    name: 'Cable TV',
+    enabled: true,
+    apiPath: '/cable',
+  },
   {
     id: 'showmax',
     name: 'Showmax',

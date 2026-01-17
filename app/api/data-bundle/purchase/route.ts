@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
-import { convertToNGN } from '@/lib/exchange';
+import { getExchangeRate } from '@/lib/exchange';
 import config from '@/lib/config';
 import { getNetworkById } from '@/lib/networks';
 import { processPayment } from '@/lib/payment-processors';
@@ -20,6 +20,7 @@ const purchaseSchema = z.object({
     networkChainId: z.number().optional(),
     serviceName: z.string().optional(),
     reference: z.string().optional(), // Allow custom reference for testing
+    serviceAmount: z.number().optional(), // Exact NGN price from bundle (for fixed-price bundles)
 });
 
 export async function POST(request: NextRequest) {
@@ -35,9 +36,22 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        // Convert token amount to NGN
-        const ngnAmount = await convertToNGN(validated.tokenAmount, validated.token as SupportedToken);
-        const exchangeRate = ngnAmount / parseFloat(validated.tokenAmount);
+        // If serviceAmount is provided (for bundles with fixed prices), use it directly
+        // Otherwise, calculate from tokenAmount using current exchange rate
+        let ngnAmount: number;
+        let exchangeRate: number;
+
+        if (validated.serviceAmount && validated.serviceAmount > 0) {
+            // Use exact NGN amount from bundle price
+            ngnAmount = validated.serviceAmount;
+            // Calculate exchange rate backward for storage (exact rate used for this transaction)
+            exchangeRate = ngnAmount / parseFloat(validated.tokenAmount);
+        } else {
+            // Get exact exchange rate from API (for non-bundle purchases like airtime)
+            exchangeRate = await getExchangeRate(validated.token as SupportedToken);
+            // Calculate NGN amount using exact rate
+            ngnAmount = parseFloat(validated.tokenAmount) * exchangeRate;
+        }
 
         // Get network details if chainId provided
         const network = validated.networkChainId ? getNetworkById(validated.networkChainId) : null;
@@ -128,7 +142,29 @@ export async function POST(request: NextRequest) {
                     paybetaTransactionId: paymentResponse.data?.transactionId,
                 },
             });
+        } else if (paymentResponse.status === 'pending' || paymentResponse.message?.toLowerCase().includes('pending')) {
+            // Handle pending transactions - PayBeta is still processing
+            await prisma.transaction.update({
+                where: { id: transaction.id },
+                data: {
+                    status: 'processing',
+                    paybetaTransactionId: paymentResponse.data?.transactionId || null,
+                    errorMessage: paymentResponse.message || 'Transaction is pending',
+                },
+            });
+
+            return NextResponse.json({
+                success: true,
+                transaction: {
+                    id: transaction.id,
+                    status: 'processing',
+                    paybetaReference: paymentResponse.data?.reference || reference,
+                    paybetaTransactionId: paymentResponse.data?.transactionId,
+                    message: paymentResponse.message || 'Transaction is being processed. Please check back later.',
+                },
+            });
         } else {
+            // Transaction failed
             await prisma.transaction.update({
                 where: { id: transaction.id },
                 data: {

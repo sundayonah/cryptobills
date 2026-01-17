@@ -22,7 +22,7 @@ export interface PurchaseRequest {
     smartCardNumber?: string; // For Cable TV
     customerName?: string; // For Electricity, Cable TV
     customerAddress?: string; // For Electricity
-    code?: string; // For Data Bundle (bundle code)
+    code?: string; // For Data Bundle (bundle code) and Cable TV (package code)
 }
 
 // Purchase response interface
@@ -77,19 +77,48 @@ async function purchaseDataBundle(request: PurchaseRequest): Promise<PurchaseRes
 
 /**
  * Purchase Cable TV
- * POST /cable-tv/purchase
+ * POST /cable/purchase
  */
 async function purchaseCableTV(request: PurchaseRequest): Promise<PurchaseResponse> {
+    if (!request.smartCardNumber) {
+        throw new Error('Smart card number is required for cable TV purchase');
+    }
+    if (!request.code) {
+        throw new Error('Package code is required for cable TV purchase');
+    }
+    if (!request.customerName) {
+        throw new Error('Customer name is required for cable TV purchase');
+    }
+
     const paybeta = getPayBetaClient();
-    const response = await paybeta.api.post('/cable-tv/purchase', {
+
+    // Ensure amount is an integer (PayBeta requires integer)
+    const amountInteger = Math.round(request.amount);
+
+    const requestBody = {
         service: request.service,
-        accountNumber: request.accountNumber,
-        decoderNumber: request.decoderNumber || request.smartCardNumber,
-        amount: request.amount,
-        reference: request.reference,
+        smartCardNumber: request.smartCardNumber,
+        amount: amountInteger,
+        packageCode: request.code,
         customerName: request.customerName,
-    });
-    return response.data;
+        reference: request.reference,
+    };
+
+    // Log request for debugging
+    if (process.env.NODE_ENV === 'development') {
+        console.log('[Cable TV Purchase] Request body:', JSON.stringify(requestBody, null, 2));
+    }
+
+    try {
+        const response = await paybeta.api.post('/cable/purchase', requestBody);
+        return response.data;
+    } catch (error: any) {
+        // Enhanced error logging
+        if (error.response?.data?.data?.errors) {
+            console.error('[Cable TV Purchase] PayBeta validation errors:', JSON.stringify(error.response.data.data.errors, null, 2));
+        }
+        throw error;
+    }
 }
 
 /**

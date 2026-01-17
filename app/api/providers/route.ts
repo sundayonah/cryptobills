@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
     const categoryMap: Record<UtilityBillCategory, string> = {
       airtime: '/airtime/providers',
       data_bundle: '/data-bundle/providers',
-      cable_tv: '/cable-tv/providers',
+      cable_tv: '/cable/providers',
       electricity: '/electricity/providers',
       showmax: '/showmax/bouquets',
       gaming: '/gaming/providers',

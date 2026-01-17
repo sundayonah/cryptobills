@@ -13,21 +13,20 @@ const purchaseSchema = z.object({
     privyUserId: z.string().optional(),
     token: z.enum(['USDC', 'USDT']),
     tokenAmount: z.string().regex(/^\d+(\.\d+)?$/),
-    meterNumber: z.string().min(1, 'Meter number is required'),
-    meterType: z.enum(['prepaid', 'postpaid'], {
-        errorMap: () => ({ message: 'Meter type must be prepaid or postpaid' }),
-    }),
+    smartCardNumber: z.string().min(1, 'Smart card number is required'),
     service: z.string().min(1, 'Service is required'),
+    packageCode: z.string().min(1, 'Package code is required'),
     customerName: z.string().min(1, 'Customer name is required'),
-    customerAddress: z.string().min(1, 'Customer address is required'),
     paymentTxHash: z.string().optional(),
-    category: z.enum(['electricity']).optional().default('electricity'),
+    category: z.enum(['cable_tv']).optional().default('cable_tv'),
     networkChainId: z.number().optional(),
     serviceName: z.string().optional(),
     reference: z.string().optional(),
+    serviceAmount: z.number().optional(), // Exact NGN price from package (for fixed-price packages)
 });
 
 export async function POST(request: NextRequest) {
+    let transaction: any = null;
     try {
         const body = await request.json();
         const validated = purchaseSchema.parse(body);
@@ -40,26 +39,23 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        // Get exact exchange rate from API
-        const exchangeRate = await getExchangeRate(validated.token as SupportedToken);
-        // Calculate NGN amount using exact rate
-        const ngnAmount = parseFloat(validated.tokenAmount) * exchangeRate;
-        const roundedNgnAmount = Math.round(ngnAmount);
+        // If serviceAmount is provided (for packages with fixed prices), use it directly
+        // Otherwise, calculate from tokenAmount using current exchange rate
+        let ngnAmount: number;
+        let exchangeRate: number;
 
-        // Validate minimum amount for electricity (PayBeta requires minimum 1000 NGN)
-        const ELECTRICITY_MIN_AMOUNT_NGN = 1000;
-        if (roundedNgnAmount < ELECTRICITY_MIN_AMOUNT_NGN) {
-            return NextResponse.json(
-                {
-                    error: `Electricity purchases require a minimum of ₦${ELECTRICITY_MIN_AMOUNT_NGN.toLocaleString()}. Your amount (₦${roundedNgnAmount.toLocaleString()}) is too low.`,
-                    details: {
-                        minimumAmount: ELECTRICITY_MIN_AMOUNT_NGN,
-                        providedAmount: roundedNgnAmount,
-                    },
-                },
-                { status: 400 }
-            );
+        if (validated.serviceAmount && validated.serviceAmount > 0) {
+            // Use exact NGN amount from package price
+            ngnAmount = validated.serviceAmount;
+            // Calculate exchange rate backward for storage (exact rate used for this transaction)
+            exchangeRate = ngnAmount / parseFloat(validated.tokenAmount);
+        } else {
+            // Get exact exchange rate from API (for non-package purchases)
+            exchangeRate = await getExchangeRate(validated.token as SupportedToken);
+            // Calculate NGN amount using exact rate
+            ngnAmount = parseFloat(validated.tokenAmount) * exchangeRate;
         }
+        const roundedNgnAmount = Math.round(ngnAmount);
 
         // Check PayBeta wallet balance before processing
         try {
@@ -128,10 +124,10 @@ export async function POST(request: NextRequest) {
         const reference = validated.reference || `CRYPTOBILZ-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
         // Get service name for display (use provider name if available)
-        const serviceName = validated.serviceName || validated.service.replace(/-electric$/i, '').replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+        const serviceName = validated.serviceName || validated.service.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
 
         // Create transaction record
-        const transaction = await prisma.transaction.create({
+        transaction = await prisma.transaction.create({
             data: {
                 userId: user.id,
                 walletAddress: validated.walletAddress,
@@ -142,14 +138,13 @@ export async function POST(request: NextRequest) {
                 paymentTxHash: validated.paymentTxHash,
                 networkChainId: network?.id,
                 networkName: network?.name,
-                category: 'electricity',
+                category: 'cable_tv',
                 service: validated.service,
                 serviceName,
-                meterNumber: validated.meterNumber,
-                accountNumber: validated.meterNumber,
-                meterType: validated.meterType,
+                accountNumber: validated.smartCardNumber,
+                decoderNumber: validated.smartCardNumber,
+                bundleCode: validated.packageCode,
                 customerName: validated.customerName,
-                customerAddress: validated.customerAddress,
                 serviceAmount: roundedNgnAmount,
                 paybetaReference: reference,
                 status: 'payment_received',
@@ -161,13 +156,12 @@ export async function POST(request: NextRequest) {
         let paymentResponse;
         try {
             paymentResponse = await processPayment({
-                category: 'electricity',
+                category: 'cable_tv',
                 service: validated.service,
-                meterNumber: validated.meterNumber,
-                meterType: validated.meterType,
+                smartCardNumber: validated.smartCardNumber,
+                code: validated.packageCode,
                 amount: roundedNgnAmount,
                 customerName: validated.customerName,
-                customerAddress: validated.customerAddress,
                 reference,
             });
         } catch (processError: any) {
@@ -195,10 +189,6 @@ export async function POST(request: NextRequest) {
                     paybetaTransactionId: paymentResponse.data?.transactionId,
                     chargedAmount: paymentResponse.data?.chargedAmount || null,
                     commission: paymentResponse.data?.commission || null,
-                    // Convert to string if needed (electricityUnit, electricityToken, bonusToken are String? in schema)
-                    electricityToken: paymentResponse.data?.token != null ? String(paymentResponse.data.token) : null,
-                    electricityUnit: paymentResponse.data?.unit != null ? String(paymentResponse.data.unit) : null,
-                    bonusToken: paymentResponse.data?.bonusToken != null && paymentResponse.data.bonusToken !== '' ? String(paymentResponse.data.bonusToken) : null,
                     biller: paymentResponse.data?.biller || null,
                     customerId: paymentResponse.data?.customerId || null,
                     completedAt: new Date(),
@@ -212,15 +202,12 @@ export async function POST(request: NextRequest) {
                     status: 'completed',
                     paybetaReference: paymentResponse.data?.reference || reference,
                     paybetaTransactionId: paymentResponse.data?.transactionId,
-                    token: paymentResponse.data?.token, // For prepaid meters
-                    unit: paymentResponse.data?.unit, // Units purchased
                     // Include full PayBeta response data for receipt
                     amount: paymentResponse.data?.amount || roundedNgnAmount,
                     chargedAmount: paymentResponse.data?.chargedAmount || roundedNgnAmount,
                     commission: paymentResponse.data?.commission || 0,
                     biller: paymentResponse.data?.biller || serviceName,
-                    customerId: paymentResponse.data?.customerId || validated.meterNumber,
-                    bonusToken: paymentResponse.data?.bonusToken || "",
+                    customerId: paymentResponse.data?.customerId || validated.smartCardNumber,
                     transactionDate: paymentResponse.data?.transactionDate || new Date().toLocaleString(),
                 },
             });
@@ -256,12 +243,27 @@ export async function POST(request: NextRequest) {
             });
 
             return NextResponse.json(
-                { error: paymentResponse.message || 'Failed to purchase electricity' },
+                { error: paymentResponse.message || 'Failed to purchase cable TV' },
                 { status: 500 }
             );
         }
     } catch (error: any) {
-        console.error('Electricity purchase error:', error);
+        console.error('Cable TV purchase error:', error);
+
+        // Update transaction status to failed if it was created
+        if (transaction) {
+            try {
+                await prisma.transaction.update({
+                    where: { id: transaction.id },
+                    data: {
+                        status: 'failed',
+                        errorMessage: error.message || 'Internal server error during payment processing',
+                    },
+                });
+            } catch (updateError) {
+                console.error('Failed to update transaction status:', updateError);
+            }
+        }
 
         if (error instanceof z.ZodError) {
             return NextResponse.json(
