@@ -524,7 +524,7 @@ export function AirtimeSwapCard() {
     if (
       selectedCategory === "cable_tv" &&
       phoneNumber &&
-      phoneNumber.trim().length >= 8 && // Smart card numbers are typically 10 digits
+      phoneNumber.trim().length >= 10 && // Smart card numbers are typically 10 digits
       selectedService &&
       !smartCardValidation &&
       !validatingSmartCard
@@ -993,10 +993,6 @@ export function AirtimeSwapCard() {
         setValue("phoneNumber", "");
         if (selectedCategory === "electricity") {
           setMeterValidation(null);
-        }
-        if (selectedCategory === "cable_tv") {
-          setSmartCardValidation(null);
-          setSelectedPackage("");
         }
         if (selectedCategory === "cable_tv") {
           setSmartCardValidation(null);

@@ -48,7 +48,14 @@ export async function POST(request: NextRequest) {
             // Use exact NGN amount from package price
             ngnAmount = validated.serviceAmount;
             // Calculate exchange rate backward for storage (exact rate used for this transaction)
-            exchangeRate = ngnAmount / parseFloat(validated.tokenAmount);
+            const parsedTokenAmount = parseFloat(validated.tokenAmount);
+            if (!isFinite(parsedTokenAmount) || parsedTokenAmount <= 0) {
+                return NextResponse.json(
+                    { error: 'Invalid token amount. Must be greater than zero.' },
+                    { status: 400 }
+                );
+            }
+            exchangeRate = ngnAmount / parsedTokenAmount;
         } else {
             // Get exact exchange rate from API (for non-package purchases)
             exchangeRate = await getExchangeRate(validated.token as SupportedToken);
