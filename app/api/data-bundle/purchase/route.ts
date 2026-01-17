@@ -57,7 +57,14 @@ export async function POST(request: NextRequest) {
             // Get exact exchange rate from API (for non-bundle purchases like airtime)
             exchangeRate = await getExchangeRate(validated.token as SupportedToken);
             // Calculate NGN amount using exact rate
-            ngnAmount = parseFloat(validated.tokenAmount) * exchangeRate;
+            const parsedTokenAmount = parseFloat(validated.tokenAmount);
+            if (!isFinite(parsedTokenAmount) || parsedTokenAmount <= 0) {
+                return NextResponse.json(
+                    { error: 'Invalid token amount. Must be greater than zero.' },
+                    { status: 400 }
+                );
+            }
+            ngnAmount = parsedTokenAmount * exchangeRate;
         }
 
         // Get network details if chainId provided
