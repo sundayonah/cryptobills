@@ -9,7 +9,7 @@ import { SUPPORTED_NETWORKS, type Network } from "./networks";
  */
 export function getNetworkLogoPath(network: Network | string | number): string {
   let networkName: string;
-  
+
   if (typeof network === "string") {
     networkName = network.toLowerCase();
   } else if (typeof network === "number") {
@@ -25,7 +25,6 @@ export function getNetworkLogoPath(network: Network | string | number): string {
     polygon: "/logos/polygon-logo.svg",
     arbitrum: "/logos/arbitrum-one-logo.svg",
     base: "/logos/base-logo.svg",
-    "base sepolia": "/logos/base-logo.svg", // Use base logo for testnet
     bsc: "/logos/bnb-smart-chain-logo.svg",
   };
 

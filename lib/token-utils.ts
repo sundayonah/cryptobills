@@ -27,11 +27,6 @@ const TOKEN_ADDRESSES: Record<
         USDC: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
         USDT: "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2",
     },
-    84532: {
-        // Base Sepolia Testnet
-        USDC: "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
-        USDT: "0x2C6c7c00ACa9B9D8446d107367485079b0471706",
-    },
     // BSC temporarily commented out due to Privy configuration requirements
     // 56: {
     //     // BSC (Binance Smart Chain) Mainnet
