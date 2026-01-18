@@ -1,6 +1,6 @@
 # CryptoBills
 
-A Web3 platform for purchasing Nigerian airtime using USDC or USDT tokens. Built with Next.js, Privy, and PayBeta API.
+A Web3 platform for paying Nigerian utility bills (airtime, data bundles, electricity, cable TV) using USDC or USDT tokens. Built with Next.js, Privy, and PayBeta API.
 
 ## Features
 

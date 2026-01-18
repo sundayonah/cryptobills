@@ -8,8 +8,8 @@ import { Toaster } from "@/components/ui/toaster";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "CryptoBills - Buy Airtime with Crypto",
-  description: "Send airtime to Nigerian phone numbers using USDC or USDT",
+  title: "cryptobilz - Pay Utility Bills with Crypto",
+  description: "Pay electricity, airtime, data bundle, cable TV, and more with USDC or USDT",
 };
 
 export default function RootLayout({
