@@ -72,13 +72,13 @@ export function TransactionHistoryDrawer({ isOpen, onClose }: TransactionHistory
         }
     }, [isOpen, authenticated, user, fetchTransactions]);
 
-    const handleCopy = async (text: string, id: string) => {
+    const handleCopy = async (text: string, id: string, label: string = "Reference") => {
         const success = await copyToClipboard(text);
         if (success) {
             setCopied(id);
             toast({
                 title: "Copied!",
-                description: "Reference copied to clipboard",
+                description: `${label} copied to clipboard`,
             });
             setTimeout(() => setCopied(null), 2000);
         }
@@ -266,7 +266,7 @@ export function TransactionHistoryDrawer({ isOpen, onClose }: TransactionHistory
                                             <div className="flex items-center justify-between gap-4 mb-3 pb-3 border-b border-gray-100">
                                                 <div className="flex-1 min-w-0">
                                                     <p className="text-xs text-gray-500">Amount Paid</p>
-                                                    <p className="text-lg font-bold text-gray-900">₦{tx.serviceAmount.toLocaleString()}</p>
+                                                    <p className="text-lg font-bold text-gray-900">₦{(tx.serviceAmount ?? tx.ngnAmount ?? 0).toLocaleString()}</p>
                                                 </div>
                                                 <div className="text-right flex-shrink-0">
                                                     <p className="text-xs text-gray-500">Token</p>
@@ -282,7 +282,7 @@ export function TransactionHistoryDrawer({ isOpen, onClose }: TransactionHistory
                                                     <div className="flex items-center justify-between text-sm gap-2">
                                                         <span className="text-gray-600">Token:</span>
                                                         <button
-                                                            onClick={() => handleCopy(tx.electricityToken!, `${tx.id}-token`)}
+                                                            onClick={() => handleCopy(tx.electricityToken!, `${tx.id}-token`, "Token")}
                                                             className="flex items-center gap-1 text-purple-600 hover:text-purple-700 font-mono font-semibold break-all text-right"
                                                             title="Copy token"
                                                         >
@@ -308,7 +308,7 @@ export function TransactionHistoryDrawer({ isOpen, onClose }: TransactionHistory
                                                 <div className="flex items-center justify-between text-sm gap-2">
                                                     <span className="text-gray-600 flex-shrink-0">Reference:</span>
                                                     <button
-                                                        onClick={() => handleCopy(tx.paybetaReference, tx.id)}
+                                                        onClick={() => handleCopy(tx.paybetaReference, tx.id, "Reference")}
                                                         className="flex items-center gap-1 text-purple-600 hover:text-purple-700 font-mono text-xs min-w-0"
                                                         title="Copy reference"
                                                     >

@@ -625,6 +625,10 @@ export function AirtimeSwapCard() {
       setSmartCardValidation(null);
       setSelectedPackage("");
     }
+    if (selectedCategory === "data_bundle") {
+      setSelectedBundle("");
+      setValue("bundleCode", "");
+    }
   }, [selectedCategory, setValue]);
 
   const onSubmit = async (data: AirtimeFormData) => {
@@ -721,9 +725,21 @@ export function AirtimeSwapCard() {
 
     // For airtime and electricity, inputAmount is NGN, so compare calculatedTokenAmount with balance
     // For other categories, inputAmount is tokenAmount, so compare directly
-    const tokenAmountToCheck = (selectedCategory === "airtime" || selectedCategory === "electricity") && calculatedTokenAmount !== null
-      ? calculatedTokenAmount
-      : inputAmount;
+    let tokenAmountToCheck: number;
+    if ((selectedCategory === "airtime" || selectedCategory === "electricity")) {
+      if (calculatedTokenAmount !== null) {
+        tokenAmountToCheck = calculatedTokenAmount;
+      } else if (exchangeRate) {
+        // Compute on the fly if rate is available
+        const rate = selectedToken === "USDC" ? exchangeRate.usdcToNgn : exchangeRate.usdtToNgn;
+        tokenAmountToCheck = inputAmount / rate;
+      } else {
+        // Rate not ready, skip balance check (will fail validation elsewhere)
+        tokenAmountToCheck = 0;
+      }
+    } else {
+      tokenAmountToCheck = inputAmount;
+    }
 
     if (tokenAmountToCheck > balanceAmount) {
       toast({
@@ -1595,9 +1611,21 @@ export function AirtimeSwapCard() {
 
             // For airtime and electricity, inputAmount is NGN, so compare calculatedTokenAmount with balance
             // For other categories, inputAmount is tokenAmount, so compare directly
-            const tokenAmountToCheck = (selectedCategory === "airtime" || selectedCategory === "electricity") && calculatedTokenAmount !== null
-              ? calculatedTokenAmount
-              : inputAmount;
+            let tokenAmountToCheck: number;
+            if ((selectedCategory === "airtime" || selectedCategory === "electricity")) {
+              if (calculatedTokenAmount !== null) {
+                tokenAmountToCheck = calculatedTokenAmount;
+              } else if (exchangeRate) {
+                // Compute on the fly if rate is available
+                const rate = selectedToken === "USDC" ? exchangeRate.usdcToNgn : exchangeRate.usdtToNgn;
+                tokenAmountToCheck = inputAmount / rate;
+              } else {
+                // Rate not ready, skip balance check
+                tokenAmountToCheck = 0;
+              }
+            } else {
+              tokenAmountToCheck = inputAmount;
+            }
 
             if (tokenAmountToCheck > balanceAmount) {
               return (
@@ -1787,9 +1815,21 @@ export function AirtimeSwapCard() {
               if (isNaN(inputAmount) || inputAmount <= 0) return true;
               // For airtime and electricity, inputAmount is NGN, so compare calculatedTokenAmount with balance
               // For other categories, inputAmount is tokenAmount, so compare directly
-              const tokenAmountToCheck = (selectedCategory === "airtime" || selectedCategory === "electricity") && calculatedTokenAmount !== null
-                ? calculatedTokenAmount
-                : inputAmount;
+              let tokenAmountToCheck: number;
+              if ((selectedCategory === "airtime" || selectedCategory === "electricity")) {
+                if (calculatedTokenAmount !== null) {
+                  tokenAmountToCheck = calculatedTokenAmount;
+                } else if (exchangeRate) {
+                  // Compute on the fly if rate is available
+                  const rate = selectedToken === "USDC" ? exchangeRate.usdcToNgn : exchangeRate.usdtToNgn;
+                  tokenAmountToCheck = inputAmount / rate;
+                } else {
+                  // Rate not ready, skip balance check
+                  tokenAmountToCheck = 0;
+                }
+              } else {
+                tokenAmountToCheck = inputAmount;
+              }
               return tokenAmountToCheck > balanceAmount;
             })() ||
             // Validate Nigerian phone number format for airtime and data bundle
