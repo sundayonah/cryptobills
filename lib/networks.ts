@@ -59,17 +59,18 @@ export const SUPPORTED_NETWORKS: Network[] = [
     },
     rpcUrl: 'https://mainnet.base.org',
   },
-  {
-    id: 84532,
-    name: 'Base Sepolia',
-    chainId: 'eip155:84532',
-    nativeCurrency: {
-      name: 'Ether',
-      symbol: 'ETH',
-      decimals: 18,
-    },
-    rpcUrl: 'https://sepolia.base.org',
-  },
+  // Base Sepolia commented out - testnet not needed in production
+  // {
+  //   id: 84532,
+  //   name: 'Base Sepolia',
+  //   chainId: 'eip155:84532',
+  //   nativeCurrency: {
+  //     name: 'Ether',
+  //     symbol: 'ETH',
+  //     decimals: 18,
+  //   },
+  //   rpcUrl: 'https://sepolia.base.org',
+  // },
   // BSC temporarily commented out due to Privy configuration requirements
   // {
   //   id: 56,

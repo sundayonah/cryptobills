@@ -79,6 +79,16 @@ export function AirtimeSwapCard() {
     meterType: string;
   } | null>(null);
   const [validatingMeter, setValidatingMeter] = useState(false);
+  // Cable TV state
+  const [cablePackages, setCablePackages] = useState<DataBundlePackage[]>([]); // Reuse DataBundlePackage type
+  const [loadingCablePackages, setLoadingCablePackages] = useState(false);
+  const [selectedPackage, setSelectedPackage] = useState<string>("");
+  const [smartCardValidation, setSmartCardValidation] = useState<{
+    customerName: string;
+    smartCardNumber: string;
+    service: string;
+  } | null>(null);
+  const [validatingSmartCard, setValidatingSmartCard] = useState(false);
   const [receipt, setReceipt] = useState<{
     reference: string;
     amount: number;
@@ -185,6 +195,23 @@ export function AirtimeSwapCard() {
             } else {
               setProviders([]);
             }
+          } else if (selectedCategory === "cable_tv") {
+            // For cable TV, process providers that have a slug field
+            const processed = data.data
+              .filter((provider: any) => provider.status !== false && provider.slug)
+              .map((provider: any) => ({
+                ...provider,
+                service: provider.slug as string, // Cable TV uses string service names (dstv, gotv, startimes)
+              }));
+            setProviders(processed as Array<AirtimeProvider & { service: AirtimeService | DataBundleService | string }>);
+            // Set default service if available
+            if (processed.length > 0) {
+              setValue("service", processed[0].service);
+              // Fetch packages for the first provider
+              fetchPackages(processed[0].service);
+            } else {
+              setProviders([]);
+            }
           } else {
             // For other categories, process providers that have a slug field
             const processed = data.data
@@ -258,11 +285,10 @@ export function AirtimeSwapCard() {
           // Set amount to bundle price in NGN (convert from string to number)
           const bundlePrice = parseFloat(data.data.packages[0].price);
           if (!isNaN(bundlePrice) && bundlePrice > 0 && exchangeRate) {
-            // Convert NGN to USDC/USDT (approximate, will be recalculated)
-            // This is just a starting point, user can adjust
+            // Calculate exact token amount needed for exact NGN price
             const rate = selectedToken === "USDC" ? exchangeRate.usdcToNgn : exchangeRate.usdtToNgn;
-            const estimatedTokenAmount = (bundlePrice / rate).toFixed(2);
-            setValue("amount", estimatedTokenAmount);
+            const exactTokenAmount = (bundlePrice / rate).toFixed(8); // Use 8 decimals for precision
+            setValue("amount", exactTokenAmount);
           }
         }
       } else {
@@ -289,6 +315,109 @@ export function AirtimeSwapCard() {
       setLoadingBundles(false);
     }
   };
+
+  // Fetch cable TV packages
+  const fetchPackages = async (service: string) => {
+    if (selectedCategory !== "cable_tv") {
+      setCablePackages([]);
+      setSelectedPackage("");
+      return;
+    }
+
+    setLoadingCablePackages(true);
+    try {
+      const response = await fetch("/api/cable/bouquet", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ service }),
+      });
+      const data = await response.json();
+
+      if (response.ok && data.status === "successful" && data.data?.packages) {
+        setCablePackages(data.data.packages);
+        // Auto-select first package if available
+        if (data.data.packages.length > 0) {
+          setSelectedPackage(data.data.packages[0].code);
+          // Set amount to package price in NGN (convert from string to number)
+          const packagePrice = parseFloat(data.data.packages[0].price);
+          if (!isNaN(packagePrice) && packagePrice > 0 && exchangeRate) {
+            // Calculate exact token amount needed for exact NGN price
+            const rate = selectedToken === "USDC" ? exchangeRate.usdcToNgn : exchangeRate.usdtToNgn;
+            const exactTokenAmount = (packagePrice / rate).toFixed(8); // Use 8 decimals for precision
+            setValue("amount", exactTokenAmount);
+          }
+        }
+      } else {
+        setCablePackages([]);
+        setSelectedPackage("");
+        toast({
+          title: "Failed to load packages",
+          description: data.message || "Unable to fetch cable TV packages.",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error("Error fetching cable packages:", error);
+      setCablePackages([]);
+      setSelectedPackage("");
+      toast({
+        title: "Error",
+        description: "Failed to load cable TV packages. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoadingCablePackages(false);
+    }
+  };
+
+  // Validate smart card for cable TV
+  const validateSmartCard = useCallback(async (service: string, smartCardNumber: string) => {
+    if (!smartCardNumber) {
+      return null;
+    }
+
+    setValidatingSmartCard(true);
+    try {
+      const response = await fetch("/api/cable/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          service,
+          smartCardNumber,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.status === "successful" && data.data) {
+        setSmartCardValidation({
+          customerName: data.data.customerName,
+          smartCardNumber: data.data.smartCardNumber,
+          service: data.data.service,
+        });
+        return data.data;
+      } else {
+        toast({
+          title: "Validation Failed",
+          description: data.message || "Failed to validate smart card number",
+          variant: "destructive",
+        });
+        setSmartCardValidation(null);
+        return null;
+      }
+    } catch (error) {
+      console.error("Error validating smart card:", error);
+      toast({
+        title: "Error",
+        description: "Failed to validate smart card number. Please try again.",
+        variant: "destructive",
+      });
+      setSmartCardValidation(null);
+      return null;
+    } finally {
+      setValidatingSmartCard(false);
+    }
+  }, [toast]);
 
   // Validate meter for electricity
   const validateMeter = useCallback(async (service: string, meterNumber: string, meterType: "prepaid" | "postpaid") => {
@@ -374,7 +503,40 @@ export function AirtimeSwapCard() {
     if (selectedCategory !== "electricity") {
       setMeterValidation(null);
     }
+    // Reset smart card validation when category changes
+    if (selectedCategory !== "cable_tv") {
+      setSmartCardValidation(null);
+    }
   }, [selectedService, selectedCategory, setValue]);
+
+  // Watch for service changes in cable TV category
+  useEffect(() => {
+    if (selectedCategory === "cable_tv" && selectedService) {
+      fetchPackages(selectedService);
+    } else {
+      setCablePackages([]);
+      setSelectedPackage("");
+    }
+  }, [selectedService, selectedCategory]);
+
+  // Auto-validate smart card number for cable TV when smart card number and service are filled
+  useEffect(() => {
+    if (
+      selectedCategory === "cable_tv" &&
+      phoneNumber &&
+      phoneNumber.trim().length >= 10 && // Smart card numbers are typically 10 digits
+      selectedService &&
+      !smartCardValidation &&
+      !validatingSmartCard
+    ) {
+      // Debounce validation - wait 1 second after user stops typing
+      const timer = setTimeout(() => {
+        validateSmartCard(selectedService, phoneNumber.trim());
+      }, 1000);
+
+      return () => clearTimeout(timer);
+    }
+  }, [phoneNumber, selectedService, selectedCategory, smartCardValidation, validatingSmartCard, validateSmartCard]);
 
   // Fetch exchange rate
   useEffect(() => {
@@ -391,6 +553,33 @@ export function AirtimeSwapCard() {
     const interval = setInterval(fetchRate, 60000);
     return () => clearInterval(interval);
   }, []);
+
+  // Recalculate exact token amount when token changes (for bundles/packages with fixed NGN prices)
+  useEffect(() => {
+    if (exchangeRate && (selectedBundle || selectedPackage)) {
+      if (selectedCategory === "data_bundle" && selectedBundle) {
+        const bundle = bundles.find(b => b.code === selectedBundle);
+        if (bundle) {
+          const bundlePrice = parseFloat(bundle.price);
+          if (!isNaN(bundlePrice) && bundlePrice > 0) {
+            const rate = selectedToken === "USDC" ? exchangeRate.usdcToNgn : exchangeRate.usdtToNgn;
+            const exactTokenAmount = (bundlePrice / rate).toFixed(20);
+            setValue("amount", exactTokenAmount);
+          }
+        }
+      } else if (selectedCategory === "cable_tv" && selectedPackage) {
+        const pkg = cablePackages.find(p => p.code === selectedPackage);
+        if (pkg) {
+          const packagePrice = parseFloat(pkg.price);
+          if (!isNaN(packagePrice) && packagePrice > 0) {
+            const rate = selectedToken === "USDC" ? exchangeRate.usdcToNgn : exchangeRate.usdtToNgn;
+            const exactTokenAmount = (packagePrice / rate).toFixed(20);
+            setValue("amount", exactTokenAmount);
+          }
+        }
+      }
+    }
+  }, [selectedToken, exchangeRate, selectedBundle, selectedPackage, selectedCategory, bundles, cablePackages, setValue]);
 
   // Calculate NGN amount
   useEffect(() => {
@@ -704,6 +893,11 @@ export function AirtimeSwapCard() {
 
       if (selectedCategory === "data_bundle" && data.bundleCode) {
         purchaseBody.code = data.bundleCode;
+        // Send exact bundle price in NGN
+        const selectedBundleObj = bundles.find(b => b.code === data.bundleCode);
+        if (selectedBundleObj) {
+          purchaseBody.serviceAmount = parseFloat(selectedBundleObj.price); // Exact NGN price from bundle
+        }
       }
 
       if (selectedCategory === "electricity") {
@@ -712,6 +906,19 @@ export function AirtimeSwapCard() {
         if (meterValidation) {
           purchaseBody.customerName = meterValidation.customerName;
           purchaseBody.customerAddress = meterValidation.customerAddress;
+        }
+      }
+
+      if (selectedCategory === "cable_tv") {
+        purchaseBody.smartCardNumber = data.phoneNumber; // Reuse phoneNumber field for smart card number
+        purchaseBody.packageCode = selectedPackage;
+        if (smartCardValidation) {
+          purchaseBody.customerName = smartCardValidation.customerName;
+        }
+        // Send exact package price in NGN
+        const selectedPackageObj = cablePackages.find(p => p.code === selectedPackage);
+        if (selectedPackageObj) {
+          purchaseBody.serviceAmount = parseFloat(selectedPackageObj.price); // Exact NGN price from package
         }
       }
 
@@ -728,6 +935,29 @@ export function AirtimeSwapCard() {
         const recipient = selectedCategory === "electricity"
           ? data.phoneNumber // Meter number
           : data.phoneNumber; // Phone number
+
+        // Check if transaction status is processing
+        const transactionStatus = purchaseResult.transaction?.status || 'completed';
+
+        if (transactionStatus === 'processing') {
+          // Transaction is pending/processing
+          toast({
+            title: "Transaction Processing",
+            description: purchaseResult.transaction?.message || `Your ${categoryName.toLowerCase()} purchase is being processed. Please check back later.`,
+          });
+
+          // Reset form but don't show receipt yet
+          setValue("amount", "");
+          setValue("phoneNumber", "");
+          if (selectedCategory === "electricity") {
+            setMeterValidation(null);
+          }
+          if (selectedCategory === "cable_tv") {
+            setSmartCardValidation(null);
+            setSelectedPackage("");
+          }
+          return; // Exit early - don't show receipt for pending transactions
+        }
 
         // Store receipt data for electricity (contains token and unit)
         if (selectedCategory === "electricity" && purchaseResult.transaction) {
@@ -763,6 +993,10 @@ export function AirtimeSwapCard() {
         setValue("phoneNumber", "");
         if (selectedCategory === "electricity") {
           setMeterValidation(null);
+        }
+        if (selectedCategory === "cable_tv") {
+          setSmartCardValidation(null);
+          setSelectedPackage("");
         }
       } else {
         const categoryName = UTILITY_CATEGORIES.find(cat => cat.id === selectedCategory)?.name || 'Service';
@@ -838,7 +1072,7 @@ export function AirtimeSwapCard() {
         </div>
 
         {/* ProviderSelector - Show for airtime, data bundle, and electricity */}
-        {(selectedCategory === "airtime" || selectedCategory === "data_bundle" || selectedCategory === "electricity") && (
+        {(selectedCategory === "airtime" || selectedCategory === "data_bundle" || selectedCategory === "electricity" || selectedCategory === "cable_tv") && (
           <div className="space-y-2">
             <label className="text-sm text-gray-600">Provider</label>
             {loadingProviders ? (
@@ -868,23 +1102,25 @@ export function AirtimeSwapCard() {
                       : "Select provider"
                   }>
                     {(() => {
-                      if (selectedService && providers.length > 0 && (selectedCategory === "airtime" || selectedCategory === "data_bundle" || selectedCategory === "electricity")) {
+                      if (selectedService && providers.length > 0 && (selectedCategory === "airtime" || selectedCategory === "data_bundle" || selectedCategory === "electricity" || selectedCategory === "cable_tv")) {
                         const provider = providers.find(p => p.service === selectedService);
                         if (provider) {
                           return (
                             <div className="flex items-center gap-2">
-                              <Image
-                                src={provider.logo}
-                                alt={provider.name}
-                                width={24}
-                                height={24}
-                                className="w-6 h-6 rounded object-contain"
-                                unoptimized
-                                onError={(e: any) => {
-                                  e.currentTarget.style.display = 'none';
-                                }}
-                              />
-                              <span>{provider.name.replace(' VTU', '').replace(' Data', '').replace(' Electricity', '')}</span>
+                              {provider.logo && (
+                                <Image
+                                  src={provider.logo}
+                                  alt={provider.name}
+                                  width={24}
+                                  height={24}
+                                  className="w-6 h-6 rounded object-contain"
+                                  unoptimized
+                                  onError={(e: any) => {
+                                    e.currentTarget.style.display = 'none';
+                                  }}
+                                />
+                              )}
+                              <span>{provider.name.replace(' VTU', '').replace(' Data', '').replace(' Electricity', '').replace(' Cable TV', '')}</span>
                             </div>
                           );
                         }
@@ -901,18 +1137,20 @@ export function AirtimeSwapCard() {
                       className="text-gray-900"
                     >
                       <div className="flex items-center gap-2">
-                        <Image
-                          src={provider.logo}
-                          alt={provider.name}
-                          width={24}
-                          height={24}
-                          className="w-6 h-6 rounded object-contain"
-                          unoptimized
-                          onError={(e: any) => {
-                            e.currentTarget.style.display = 'none';
-                          }}
-                        />
-                        <span>{provider.name.replace(' VTU', '').replace(' Data', '').replace(' Electricity', '')}</span>
+                        {provider.logo && (
+                          <Image
+                            src={provider.logo}
+                            alt={provider.name}
+                            width={24}
+                            height={24}
+                            className="w-6 h-6 rounded object-contain"
+                            unoptimized
+                            onError={(e: any) => {
+                              e.currentTarget.style.display = 'none';
+                            }}
+                          />
+                        )}
+                        <span>{provider.name.replace(' VTU', '').replace(' Data', '').replace(' Electricity', '').replace(' Cable TV', '')}</span>
                       </div>
                     </SelectItem>
                   ))}
@@ -942,12 +1180,12 @@ export function AirtimeSwapCard() {
                   setValue("bundleCode", value);
                   const bundle = bundles.find(b => b.code === value);
                   if (bundle && exchangeRate) {
-                    // Convert NGN price to token amount (approximate)
+                    // Calculate exact token amount needed for exact NGN price
                     const bundlePrice = parseFloat(bundle.price);
                     if (!isNaN(bundlePrice) && bundlePrice > 0) {
                       const rate = selectedToken === "USDC" ? exchangeRate.usdcToNgn : exchangeRate.usdtToNgn;
-                      const estimatedTokenAmount = (bundlePrice / rate).toFixed(2);
-                      setValue("amount", estimatedTokenAmount);
+                      const exactTokenAmount = (bundlePrice / rate).toFixed(8); // Use 8 decimals for precision
+                      setValue("amount", exactTokenAmount);
                     }
                   }
                 }}
@@ -998,11 +1236,83 @@ export function AirtimeSwapCard() {
           </div>
         )}
 
+        {/* Package Selector - Only show for cable TV */}
+        {selectedCategory === "cable_tv" && (
+          <div className="space-y-2">
+            <label className="text-xs text-gray-500 mb-1 block">Select Package</label>
+            {loadingCablePackages ? (
+              <div className="w-full h-14 bg-gray-50 border border-gray-200 rounded-xl flex items-center justify-center">
+                <Loader2 className="h-4 w-4 animate-spin text-gray-600 mr-2" />
+                <span className="ml-2 text-sm text-gray-600">Loading packages...</span>
+              </div>
+            ) : cablePackages.length > 0 ? (
+              <Select
+                value={selectedPackage}
+                onValueChange={(value) => {
+                  setSelectedPackage(value);
+                  const pkg = cablePackages.find(p => p.code === value);
+                  if (pkg && exchangeRate) {
+                    // Calculate exact token amount needed for exact NGN price
+                    const packagePrice = parseFloat(pkg.price);
+                    if (!isNaN(packagePrice) && packagePrice > 0) {
+                      const rate = selectedToken === "USDC" ? exchangeRate.usdcToNgn : exchangeRate.usdtToNgn;
+                      const exactTokenAmount = (packagePrice / rate).toFixed(8); // Use 8 decimals for precision
+                      setValue("amount", exactTokenAmount);
+                    }
+                  }
+                }}
+              >
+                <SelectTrigger className="w-full h-14 bg-gray-50 border-gray-300 text-gray-900 rounded-xl hover:bg-gray-100">
+                  <SelectValue placeholder="Select cable package">
+                    {selectedPackage && cablePackages.find(p => p.code === selectedPackage) && (
+                      <div className="flex items-center justify-between w-full pr-2 gap-2 min-w-0">
+                        <span className="font-medium text-base truncate">
+                          {cablePackages.find(p => p.code === selectedPackage)?.description}
+                        </span>
+                        <span className="text-sm font-semibold text-gray-700 whitespace-nowrap flex-shrink-0">
+                          ₦{parseFloat(cablePackages.find(p => p.code === selectedPackage)?.price || "0").toFixed(2)}
+                        </span>
+                      </div>
+                    )}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent
+                  className="bg-white border-gray-200 max-h-[300px] w-[var(--radix-select-trigger-width)]"
+                  position="popper"
+                  sideOffset={4}
+                >
+                  {cablePackages.map((pkg) => (
+                    <SelectItem
+                      key={pkg.code}
+                      value={pkg.code}
+                      className="text-gray-900 cursor-pointer hover:bg-gray-50 py-3"
+                    >
+                      <div className="flex items-start justify-between w-full gap-2">
+                        <span className="font-medium text-sm flex-1 break-words leading-tight">{pkg.description}</span>
+                        <span className="text-sm font-semibold text-gray-700 whitespace-nowrap flex-shrink-0 ml-2">
+                          ₦{parseFloat(pkg.price).toFixed(2)}
+                        </span>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <div className="w-full h-14 bg-gray-50 border border-gray-200 rounded-xl flex items-center justify-center">
+                <span className="text-sm text-gray-500">No packages available</span>
+              </div>
+            )}
+            {!selectedPackage && selectedCategory === "cable_tv" && (
+              <p className="text-sm text-red-600">Please select a package</p>
+            )}
+          </div>
+        )}
+
         {/* Send Section */}
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <label className="text-sm text-gray-600">Send</label>
-            {selectedCategory !== "data_bundle" && (
+            {selectedCategory !== "data_bundle" && selectedCategory !== "cable_tv" && (
               <button
                 type="button"
                 onClick={() => {
@@ -1028,13 +1338,16 @@ export function AirtimeSwapCard() {
               min={config.min_amount}
               max={config.max_amount}
               placeholder="0"
-              disabled={selectedCategory === "data_bundle"}
+              disabled={selectedCategory === "data_bundle" || selectedCategory === "cable_tv"}
               className="flex-1 bg-gray-50 border-gray-300 text-gray-900 text-2xl h-12 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-gray-100"
               {...register("amount")}
             />
             <Select
               value={selectedToken}
-              onValueChange={(value) => setValue("token", value as SupportedToken)}
+              onValueChange={(value) => {
+                setValue("token", value as SupportedToken);
+                // Token change will trigger useEffect to recalculate exact amount for bundles/packages
+              }}
             >
               <SelectTrigger className="w-[180px] h-12 bg-gray-50 border-gray-300 text-gray-900 rounded-xl">
                 <SelectValue>
@@ -1258,6 +1571,33 @@ export function AirtimeSwapCard() {
               </div>
             )}
 
+            {/* Smart Card Validation Info for Cable TV */}
+            {selectedCategory === "cable_tv" && (
+              <>
+                {validatingSmartCard && (
+                  <div className="w-full h-12 bg-blue-50 border border-blue-200 rounded-xl flex items-center justify-center">
+                    <Loader2 className="h-4 w-4 animate-spin text-blue-600 mr-2" />
+                    <span className="text-sm text-blue-600">Validating smart card...</span>
+                  </div>
+                )}
+                {smartCardValidation && (
+                  <div className="p-3 bg-green-50 border border-green-200 rounded-xl">
+                    <p className="text-sm font-semibold text-green-900 mb-1">Smart Card Validated</p>
+                    <p className="text-xs text-green-700">Name: {smartCardValidation.customerName}</p>
+                    <p className="text-xs text-green-700">Service: {smartCardValidation.service}</p>
+                    <Button
+                      type="button"
+                      onClick={() => setSmartCardValidation(null)}
+                      variant="outline"
+                      className="mt-2 h-8 text-xs"
+                    >
+                      Re-validate
+                    </Button>
+                  </div>
+                )}
+              </>
+            )}
+
             {ngnAmount && (
               <div className="text-center py-3 bg-gray-50 rounded-xl border border-gray-200">
                 <p className="text-sm text-gray-600 mb-1">You will receive</p>
@@ -1315,7 +1655,10 @@ export function AirtimeSwapCard() {
             // Validate meter for electricity
             (selectedCategory === "electricity" && !meterValidation) ||
             // Validate minimum NGN amount for electricity (₦1,000 minimum)
-            (selectedCategory === "electricity" && ngnAmount !== null && ngnAmount < 1000)
+            (selectedCategory === "electricity" && ngnAmount !== null && ngnAmount < 1000) ||
+            // Validate smart card and package for cable TV
+            (selectedCategory === "cable_tv" && !smartCardValidation) ||
+            (selectedCategory === "cable_tv" && !selectedPackage)
           }
           className="w-full h-14 bg-gray-900 hover:bg-gray-800 text-white rounded-xl text-lg font-semibold border border-gray-900 disabled:opacity-50 disabled:cursor-not-allowed"
         >

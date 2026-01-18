@@ -174,9 +174,6 @@ export function NetworksDropdown() {
                   className="rounded-full flex-shrink-0"
                 />
                 <span className="font-medium">{network.name}</span>
-                <span className="text-xs text-gray-500">
-                  ({network.nativeCurrency.symbol})
-                </span>
               </div>
             </SelectItem>
           ))}

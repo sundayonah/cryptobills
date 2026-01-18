@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
-import { convertToNGN } from '@/lib/exchange';
+import { getExchangeRate } from '@/lib/exchange';
 import config from '@/lib/config';
 import { getNetworkById } from '@/lib/networks';
 import { processPayment } from '@/lib/payment-processors';
@@ -36,9 +36,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Convert token amount to NGN
-    const ngnAmount = await convertToNGN(validated.tokenAmount, validated.token as SupportedToken);
-    const exchangeRate = ngnAmount / parseFloat(validated.tokenAmount);
+    // Get exact exchange rate from API
+    const exchangeRate = await getExchangeRate(validated.token as SupportedToken);
+    // Calculate NGN amount using exact rate
+    const ngnAmount = parseFloat(validated.tokenAmount) * exchangeRate;
     const roundedNgnAmount = Math.round(ngnAmount);
 
     // Check PayBeta wallet balance before processing
@@ -191,7 +192,31 @@ export async function POST(request: NextRequest) {
           paybetaTransactionId: paymentResponse.data?.transactionId,
         },
       });
+    } else if (paymentResponse.status === 'pending' || paymentResponse.message?.toLowerCase().includes('pending')) {
+      // Handle pending transactions - PayBeta is still processing
+      await prisma.transaction.update({
+        where: { id: transaction.id },
+        data: {
+          status: 'processing',
+          paybetaTransactionId: paymentResponse.data?.transactionId || null,
+          errorMessage: paymentResponse.message || 'Transaction is pending',
+        },
+      });
+
+      const categoryName = validated.category === 'airtime' ? 'airtime' : validated.category;
+
+      return NextResponse.json({
+        success: true,
+        transaction: {
+          id: transaction.id,
+          status: 'processing',
+          paybetaReference: paymentResponse.data?.reference || reference,
+          paybetaTransactionId: paymentResponse.data?.transactionId,
+          message: paymentResponse.message || 'Transaction is being processed. Please check back later.',
+        },
+      });
     } else {
+      // Transaction failed
       await prisma.transaction.update({
         where: { id: transaction.id },
         data: {

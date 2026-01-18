@@ -118,8 +118,11 @@ export function Header() {
     return (
       <header className="fixed top-0 left-0 right-0 z-50 w-full bg-white">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="text-xl font-bold bg-gradient-to-r from-blue-500 to-purple-500 bg-clip-text text-transparent">
+          <div className="relative text-xl font-bold bg-gradient-to-r from-blue-500 to-purple-500 bg-clip-text text-transparent">
             cryptobilz
+            <span className="absolute -top-1 -right-8 text-[10px] font-semibold bg-orange-500 text-white px-1.5 py-0.5 rounded leading-none">
+              beta
+            </span>
           </div>
           <div className="h-10 w-20 bg-gray-200 rounded animate-pulse" />
         </div>
@@ -133,9 +136,12 @@ export function Header() {
         <motion.div
           initial={{ opacity: 0, x: -20 }}
           animate={{ opacity: 1, x: 0 }}
-          className="text-xl font-bold bg-gradient-to-r from-blue-500 to-purple-500 bg-clip-text text-transparent"
+          className="relative text-xl font-bold bg-gradient-to-r from-blue-500 to-purple-500 bg-clip-text text-transparent"
         >
           cryptobilz
+          <span className="absolute -top-1 -right-8 text-[10px] font-semibold bg-orange-500 text-white px-1.5 py-0.5 rounded leading-none">
+            beta
+          </span>
         </motion.div>
 
         <motion.div
