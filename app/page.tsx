@@ -26,7 +26,7 @@ export default function Home() {
             <h1 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-bold mb-4">
               <span className="text-gray-900">Pay utility bills</span>
               <br />
-              <span className="text-gray-600 italic font-serif">in seconds with stablecoins</span>
+              <span className="text-gray-600 italic font-serif">with stablecoins</span>
             </h1>
           </motion.div>
         )}

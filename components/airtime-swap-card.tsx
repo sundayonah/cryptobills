@@ -165,13 +165,17 @@ export function AirtimeSwapCard() {
               setProviders([]);
             }
           } else if (selectedCategory === "data_bundle") {
-            // For data bundle, process providers that have a slug field
+            // For data bundle, convert slug format (mtn-data) to service format (mtn_data)
             const processed = data.data
               .filter((provider: any) => provider.status !== false && provider.slug)
-              .map((provider: any) => ({
-                ...provider,
-                service: provider.slug as DataBundleService,
-              }));
+              .map((provider: any) => {
+                // Convert slug format "mtn-data" to service format "mtn_data"
+                const serviceSlug = provider.slug.replace(/-/g, '_') as DataBundleService;
+                return {
+                  ...provider,
+                  service: serviceSlug,
+                };
+              });
             setProviders(processed as Array<AirtimeProvider & { service: DataBundleService }>);
             // Set default service if available
             if (processed.length > 0) {
@@ -268,6 +272,15 @@ export function AirtimeSwapCard() {
   // Fetch bundles when data bundle provider changes
   const fetchBundles = async (service: DataBundleService) => {
     if (selectedCategory !== "data_bundle") {
+      setBundles([]);
+      setSelectedBundle("");
+      setValue("bundleCode", "");
+      return;
+    }
+
+    // Guard against empty or invalid service
+    if (!service || service.trim() === "") {
+      console.warn("Cannot fetch bundles: service is empty");
       setBundles([]);
       setSelectedBundle("");
       setValue("bundleCode", "");
@@ -495,7 +508,7 @@ export function AirtimeSwapCard() {
 
   // Watch for service changes in data bundle category
   useEffect(() => {
-    if (selectedCategory === "data_bundle" && selectedService) {
+    if (selectedCategory === "data_bundle" && selectedService && selectedService.trim() !== "") {
       fetchBundles(selectedService as DataBundleService);
     } else {
       setBundles([]);
