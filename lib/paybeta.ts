@@ -224,15 +224,19 @@ export function createCryptobilzClient(apiKey: string): CryptoBilzClient {
     },
 
     /**
-     * Query transaction status
+     * Query transaction status using reference
+     * PayBeta API: POST /v2/transaction/query
+     * Note: Base URL already includes /v2, so use /transaction/query
      */
     async queryTransaction(
       request: TransactionQueryRequest
     ): Promise<TransactionQueryResponse> {
       try {
+        // PayBeta requires reference (not transactionId) to query status
+        // Base URL already includes /v2, so just use /transaction/query
         const response = await api.post<TransactionQueryResponse>(
-          '/wallet/transaction-query',
-          request
+          '/transaction/query',
+          { reference: request.reference }
         );
         return response.data;
       } catch (error) {
@@ -417,14 +421,16 @@ export async function checkBalance() {
 }
 
 /**
- * Query transaction status
+ * Query transaction status using PayBeta reference
+ * @param reference - The PayBeta reference (paybetaReference) used when creating the transaction
+ * @returns Transaction data from PayBeta
  */
-export async function queryTransaction(transactionId: string) {
+export async function queryTransaction(reference: string) {
   try {
     const client = getCryptobilzClient();
 
     const request: TransactionQueryRequest = {
-      transactionId,
+      reference,
     };
 
     const response = await client.queryTransaction(request);
@@ -442,43 +448,8 @@ export async function queryTransaction(transactionId: string) {
 }
 
 /**
- * Poll transaction status until completion
- */
-export async function pollTransactionStatus(
-  transactionId: string,
-  maxAttempts: number = 5,
-  delayMs: number = 3000
-): Promise<'completed' | 'failed'> {
-  const client = getCryptobilzClient();
-
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    try {
-      const request: TransactionQueryRequest = { transactionId };
-      const response = await client.queryTransaction(request);
-
-      if (response.data && (response.data.status === 'successful' || response.data.status === 'failed')) {
-        return response.data.status === 'successful' ? 'completed' : 'failed';
-      }
-
-      if (process.env.NODE_ENV === 'development') {
-        console.log(`Attempt ${attempt}/${maxAttempts}: Transaction still pending...`);
-      }
-
-      if (attempt < maxAttempts) {
-        await new Promise((resolve) => setTimeout(resolve, delayMs));
-      }
-    } catch (error) {
-      if (attempt === maxAttempts) {
-        throw error;
-      }
-    }
-  }
-
-  throw new Error('Transaction status polling timeout');
-}
-
-/**
  * Complete purchase flow with automatic provider selection
+ * Note: Transaction status updates are handled via webhooks (no polling needed)
  */
 export async function completePurchaseFlow(
   phoneNumber: string,
@@ -508,17 +479,8 @@ export async function completePurchaseFlow(
       reference: `FLOW-${Date.now()}`,
     });
 
-    // Step 4: Poll for completion if pending
-    if (purchaseResponse.data && purchaseResponse.data.transactionId) {
-      const finalStatus = await pollTransactionStatus(
-        purchaseResponse.data.transactionId
-      );
-      return {
-        ...purchaseResponse.data,
-        status: finalStatus,
-      };
-    }
-
+    // Transaction status updates are handled via webhooks
+    // No polling needed - webhooks will update the database automatically
     return purchaseResponse.data;
   } catch (error) {
     if (isCryptobilzError(error)) {

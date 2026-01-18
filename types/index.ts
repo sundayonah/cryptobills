@@ -200,21 +200,24 @@ export interface WalletBalanceResponse {
 }
 
 export interface TransactionQueryRequest {
-    reference?: string;
-    transactionId?: string;
+    reference: string; // Required: PayBeta uses reference to query transaction status
 }
 
 export interface TransactionQueryResponse {
-    status: string;
+    status: string; // 'successful', 'failed', or 'pending'
     message: string;
-    data: {
-        transactionId: string;
+    code: string; // '00' = successful, '01' = pending, '02' = failed, '99' = not found
+    data?: {
+        paymentStatus: string; // 'Delivered', 'Pending', 'Failed', etc.
         reference: string;
-        status: 'successful' | 'pending' | 'failed';
         amount: number;
-        phoneNumber: string;
-        service: string;
-        createdAt: string;
+        amountPaid: number;
+        product: string; // e.g., "GLO AIRTIME", "ABUJA ELECTRIC"
+        customerId: string;
+        token: string; // Electricity token (for electricity purchases) or "0" for non-electricity
+        unit: string; // Electricity units (for electricity purchases) or "0" for non-electricity
+        transactionId: string; // PayBeta's internal transaction ID
+        transactionDate: string; // ISO date string
     };
 }
 
