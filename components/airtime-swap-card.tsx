@@ -39,9 +39,11 @@ const airtimeSchema = z.object({
   amount: z.string().refine(
     (val) => {
       const num = parseFloat(val);
-      return !isNaN(num) && num >= config.min_amount && num <= config.max_amount;
+      // Basic validation: must be a valid positive number
+      // Specific min/max validation is handled in the form's register validation function
+      return !isNaN(num) && num > 0;
     },
-    { message: `Amount must be between $${config.min_amount} and $${config.max_amount}` }
+    { message: "Please enter a valid amount" }
   ),
   phoneNumber: z.string().min(1, "Account/Phone number is required"),
   service: z.string().min(1, "Service is required"), // Allow any string for flexibility (airtime, data, electricity, etc.)
@@ -65,6 +67,7 @@ export function AirtimeSwapCard() {
   const [exchangeRate, setExchangeRate] = useState<ExchangeRate | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [ngnAmount, setNgnAmount] = useState<number | null>(null);
+  const [calculatedTokenAmount, setCalculatedTokenAmount] = useState<number | null>(null); // Token amount calculated from NGN for airtime
   const [providers, setProviders] = useState<Array<AirtimeProvider & { service: AirtimeService | DataBundleService | string }>>([]);
   const [loadingProviders, setLoadingProviders] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState<UtilityBillCategory>("airtime");
@@ -581,20 +584,52 @@ export function AirtimeSwapCard() {
     }
   }, [selectedToken, exchangeRate, selectedBundle, selectedPackage, selectedCategory, bundles, cablePackages, setValue]);
 
-  // Calculate NGN amount
+  // Calculate amounts based on category
+  // For airtime: selectedAmount is NGN, calculate tokenAmount
+  // For other categories: selectedAmount is tokenAmount, calculate NGN
   useEffect(() => {
     if (exchangeRate && selectedAmount) {
       const amount = parseFloat(selectedAmount);
       if (!isNaN(amount) && amount > 0) {
         const rate = selectedToken === "USDC" ? exchangeRate.usdcToNgn : exchangeRate.usdtToNgn;
-        setNgnAmount(Math.round(amount * rate));
+
+        if (selectedCategory === "airtime" || selectedCategory === "electricity") {
+          // For airtime and electricity: amount is NGN (already integer from input), calculate tokenAmount
+          const ngnAmountInt = Math.round(amount); // Ensure integer (input should already be integer)
+          const tokenAmt = ngnAmountInt / rate;
+          setNgnAmount(ngnAmountInt); // Store NGN amount (integer)
+          setCalculatedTokenAmount(tokenAmt); // Store calculated token amount
+        } else {
+          // For other categories: amount is tokenAmount, calculate NGN
+          setNgnAmount(Math.round(amount * rate));
+          setCalculatedTokenAmount(null);
+        }
       } else {
         setNgnAmount(null);
+        setCalculatedTokenAmount(null);
       }
     } else {
       setNgnAmount(null);
+      setCalculatedTokenAmount(null);
     }
-  }, [selectedToken, selectedAmount, exchangeRate]);
+  }, [selectedToken, selectedAmount, exchangeRate, selectedCategory]);
+
+  // Helper function to reset form based on category
+  const resetForm = useCallback(() => {
+    setValue("amount", "");
+    setValue("phoneNumber", "");
+    if (selectedCategory === "electricity") {
+      setMeterValidation(null);
+    }
+    if (selectedCategory === "cable_tv") {
+      setSmartCardValidation(null);
+      setSelectedPackage("");
+    }
+    if (selectedCategory === "data_bundle") {
+      setSelectedBundle("");
+      setValue("bundleCode", "");
+    }
+  }, [selectedCategory, setValue]);
 
   const onSubmit = async (data: AirtimeFormData) => {
     // Check if selected category is enabled
@@ -636,9 +671,32 @@ export function AirtimeSwapCard() {
         });
         return;
       }
+    }
 
-      // Validate minimum amount for electricity (1000 NGN minimum)
-      // We'll validate this after NGN conversion in the try block below
+    // Validate minimum amount for airtime (100 NGN minimum)
+    if (selectedCategory === "airtime") {
+      const inputNgnAmount = parseFloat(data.amount);
+      if (!isNaN(inputNgnAmount) && inputNgnAmount < 100) {
+        toast({
+          title: "Amount Too Low",
+          description: "Airtime purchases require a minimum of ₦100. Please enter at least ₦100.",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
+    // Validate minimum amount for electricity (1000 NGN minimum)
+    if (selectedCategory === "electricity") {
+      const inputNgnAmount = parseFloat(data.amount);
+      if (!isNaN(inputNgnAmount) && inputNgnAmount < 1000) {
+        toast({
+          title: "Amount Too Low",
+          description: "Electricity purchases require a minimum of ₦1,000. Please enter at least ₦1,000.",
+          variant: "destructive",
+        });
+        return;
+      }
     }
 
     // Validate bundle code for data bundle
@@ -665,7 +723,25 @@ export function AirtimeSwapCard() {
       return;
     }
 
-    if (inputAmount > balanceAmount) {
+    // For airtime and electricity, inputAmount is NGN, so compare calculatedTokenAmount with balance
+    // For other categories, inputAmount is tokenAmount, so compare directly
+    let tokenAmountToCheck: number;
+    if ((selectedCategory === "airtime" || selectedCategory === "electricity")) {
+      if (calculatedTokenAmount !== null) {
+        tokenAmountToCheck = calculatedTokenAmount;
+      } else if (exchangeRate) {
+        // Compute on the fly if rate is available
+        const rate = selectedToken === "USDC" ? exchangeRate.usdcToNgn : exchangeRate.usdtToNgn;
+        tokenAmountToCheck = inputAmount / rate;
+      } else {
+        // Rate not ready, skip balance check (will fail validation elsewhere)
+        tokenAmountToCheck = 0;
+      }
+    } else {
+      tokenAmountToCheck = inputAmount;
+    }
+
+    if (tokenAmountToCheck > balanceAmount) {
       toast({
         title: "Insufficient Balance",
         description: `You have ${balanceAmount.toFixed(6)} ${data.token}. Please enter an amount within your balance.`,
@@ -749,11 +825,40 @@ export function AirtimeSwapCard() {
       });
 
       let ngnAmount: number;
+      let tokenAmountForTransfer: string; // Token amount to transfer from wallet
+
       try {
-        ngnAmount = await convertToNGN(data.amount, data.token);
-        // Update the displayed amount to match what will actually be charged
-        // This ensures the user sees the actual amount that will be processed
-        setNgnAmount(ngnAmount);
+        if (selectedCategory === "airtime" || selectedCategory === "electricity") {
+          // For airtime and electricity: data.amount is NGN (should already be integer from input validation)
+          const inputNgnAmount = parseFloat(data.amount);
+          if (isNaN(inputNgnAmount) || inputNgnAmount <= 0) {
+            throw new Error("Invalid NGN amount");
+          }
+          // Ensure integer (input validation should have caught decimals, but ensure it here)
+          ngnAmount = Math.round(inputNgnAmount);
+
+          // Use the already-calculated token amount from state (same as display)
+          // This ensures EXACT match between UI display and wallet transfer amount
+          if (calculatedTokenAmount !== null && calculatedTokenAmount > 0) {
+            tokenAmountForTransfer = calculatedTokenAmount.toFixed(20);
+          } else {
+            // Fallback: calculate if state not available (shouldn't happen normally)
+            let rate: number;
+            if (exchangeRate) {
+              rate = data.token === "USDC" ? exchangeRate.usdcToNgn : exchangeRate.usdtToNgn;
+            } else {
+              rate = await convertToNGN("1", data.token);
+            }
+            const calculatedToken = ngnAmount / rate;
+            tokenAmountForTransfer = calculatedToken.toFixed(20);
+          }
+          setNgnAmount(ngnAmount); // Store NGN amount (integer)
+        } else {
+          // For other categories: data.amount is tokenAmount, convert to NGN
+          tokenAmountForTransfer = data.amount;
+          ngnAmount = await convertToNGN(data.amount, data.token);
+          setNgnAmount(ngnAmount);
+        }
       } catch (error: any) {
         throw new Error(`Failed to get exchange rate: ${error.message}. Please try again later.`);
       }
@@ -830,7 +935,7 @@ export function AirtimeSwapCard() {
 
       const transferResult = await processWalletPayment(wallet, {
         token: data.token,
-        tokenAmount: data.amount,
+        tokenAmount: tokenAmountForTransfer, // Use calculated token amount for airtime
         recipientAddress: config.payment_recipient_address,
         chainId: chainId,
       });
@@ -878,7 +983,7 @@ export function AirtimeSwapCard() {
         walletAddress: walletAddress,
         privyUserId: user?.id,
         token: data.token,
-        tokenAmount: data.amount,
+        tokenAmount: tokenAmountForTransfer, // Use calculated token amount for airtime, original for others
         service: data.service,
         serviceName: serviceName,
         paymentTxHash: txHash,
@@ -889,6 +994,11 @@ export function AirtimeSwapCard() {
       // Add category-specific fields
       if (selectedCategory === "airtime" || selectedCategory === "data_bundle") {
         purchaseBody.phoneNumber = data.phoneNumber;
+      }
+
+      // For airtime and electricity, send serviceAmount (NGN integer) so API knows exact amount
+      if (selectedCategory === "airtime" || selectedCategory === "electricity") {
+        purchaseBody.serviceAmount = Math.round(ngnAmount); // NGN amount (integer)
       }
 
       if (selectedCategory === "data_bundle" && data.bundleCode) {
@@ -947,15 +1057,7 @@ export function AirtimeSwapCard() {
           });
 
           // Reset form but don't show receipt yet
-          setValue("amount", "");
-          setValue("phoneNumber", "");
-          if (selectedCategory === "electricity") {
-            setMeterValidation(null);
-          }
-          if (selectedCategory === "cable_tv") {
-            setSmartCardValidation(null);
-            setSelectedPackage("");
-          }
+          resetForm();
           return; // Exit early - don't show receipt for pending transactions
         }
 
@@ -989,15 +1091,7 @@ export function AirtimeSwapCard() {
         }
 
         // Reset form
-        setValue("amount", "");
-        setValue("phoneNumber", "");
-        if (selectedCategory === "electricity") {
-          setMeterValidation(null);
-        }
-        if (selectedCategory === "cable_tv") {
-          setSmartCardValidation(null);
-          setSelectedPackage("");
-        }
+        resetForm();
       } else {
         const categoryName = UTILITY_CATEGORIES.find(cat => cat.id === selectedCategory)?.name || 'Service';
         throw new Error(purchaseResult.error || `Failed to purchase ${categoryName.toLowerCase()}`);
@@ -1031,7 +1125,7 @@ export function AirtimeSwapCard() {
       transition={{ duration: 0.4 }}
       className="bg-white rounded-2xl p-6 border border-gray-200 shadow-lg"
     >
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
         {/* Category Selector */}
         <div className="space-y-2">
           <label className="text-sm text-gray-600">Service Type</label>
@@ -1310,37 +1404,76 @@ export function AirtimeSwapCard() {
 
         {/* Send Section */}
         <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <label className="text-sm text-gray-600">Send</label>
-            {selectedCategory !== "data_bundle" && selectedCategory !== "cable_tv" && (
-              <button
-                type="button"
-                onClick={() => {
-                  if (balanceAmount > 0) {
-                    // Format number without trailing zeros
-                    // Convert to string and remove trailing zeros and decimal point if not needed
-                    const formatted = parseFloat(balanceAmount.toFixed(6)).toString();
-                    setValue("amount", formatted);
-                  }
-                }}
-                disabled={balanceAmount === 0 || isLoadingBalance}
-                className="text-xs text-gray-500 hover:text-gray-700 underline disabled:opacity-50 disabled:cursor-not-allowed"
-                title="Set maximum balance"
-              >
-                Max
-              </button>
-            )}
+          <div>
+            <label className="text-sm text-gray-600">
+              {(selectedCategory === "airtime" || selectedCategory === "electricity") ? "Amount (NGN)" : "Send"}
+            </label>
           </div>
           <div className="flex gap-2">
             <Input
               type="number"
-              step="0.01"
-              min={config.min_amount}
+              step={(selectedCategory === "airtime" || selectedCategory === "electricity") ? "1" : "0.01"}
+              min={selectedCategory === "airtime" ? 100 : selectedCategory === "electricity" ? 1000 : config.min_amount}
               max={config.max_amount}
               placeholder="0"
               disabled={selectedCategory === "data_bundle" || selectedCategory === "cable_tv"}
               className="flex-1 bg-gray-50 border-gray-300 text-gray-900 text-2xl h-12 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-gray-100"
-              {...register("amount")}
+              onKeyDown={(e) => {
+                // Block decimal point, comma, minus, and scientific notation for airtime and electricity
+                if (selectedCategory === "airtime" || selectedCategory === "electricity") {
+                  if (e.key === "." || e.key === "," || e.key === "-" || e.key === "e" || e.key === "E") {
+                    e.preventDefault();
+                  }
+                }
+              }}
+              {...(() => {
+                const { onChange: registerOnChange, ...registerProps } = register("amount", {
+                  validate: (value) => {
+                    if (selectedCategory === "airtime") {
+                      const num = parseFloat(value);
+                      // For airtime, must be an integer and minimum 100 NGN
+                      if (isNaN(num) || !Number.isInteger(num)) {
+                        return "Please enter a whole number (e.g., 200, 500)";
+                      }
+                      if (num < 100) {
+                        return "Minimum amount is ₦100 for airtime";
+                      }
+                    }
+                    if (selectedCategory === "electricity") {
+                      const num = parseFloat(value);
+                      // For electricity, must be an integer and minimum 1000 NGN
+                      if (isNaN(num) || !Number.isInteger(num)) {
+                        return "Please enter a whole number (e.g., 1000, 2000)";
+                      }
+                      if (num < 1000) {
+                        return "Minimum amount is ₦1,000 for electricity";
+                      }
+                    }
+                    return true;
+                  }
+                });
+                return {
+                  ...registerProps,
+                  onChange: (e: React.ChangeEvent<HTMLInputElement>) => {
+                    // Remove any decimal values that get pasted for airtime and electricity
+                    if (selectedCategory === "airtime" || selectedCategory === "electricity") {
+                      const value = e.target.value;
+                      // Remove decimal point and everything after it
+                      if (value.includes(".")) {
+                        const integerValue = value.split(".")[0];
+                        e.target.value = integerValue;
+                        setValue("amount", integerValue, { shouldValidate: true });
+                      } else {
+                        // Call register's onChange for non-airtime/electricity or when no decimal
+                        registerOnChange(e);
+                      }
+                    } else {
+                      // Call register's onChange for other categories
+                      registerOnChange(e);
+                    }
+                  }
+                };
+              })()}
             />
             <Select
               value={selectedToken}
@@ -1474,7 +1607,27 @@ export function AirtimeSwapCard() {
           )}
           {selectedAmount && !errors.amount && (() => {
             const inputAmount = parseFloat(selectedAmount);
-            if (!isNaN(inputAmount) && inputAmount > balanceAmount) {
+            if (isNaN(inputAmount) || inputAmount <= 0) return null;
+
+            // For airtime and electricity, inputAmount is NGN, so compare calculatedTokenAmount with balance
+            // For other categories, inputAmount is tokenAmount, so compare directly
+            let tokenAmountToCheck: number;
+            if ((selectedCategory === "airtime" || selectedCategory === "electricity")) {
+              if (calculatedTokenAmount !== null) {
+                tokenAmountToCheck = calculatedTokenAmount;
+              } else if (exchangeRate) {
+                // Compute on the fly if rate is available
+                const rate = selectedToken === "USDC" ? exchangeRate.usdcToNgn : exchangeRate.usdtToNgn;
+                tokenAmountToCheck = inputAmount / rate;
+              } else {
+                // Rate not ready, skip balance check
+                tokenAmountToCheck = 0;
+              }
+            } else {
+              tokenAmountToCheck = inputAmount;
+            }
+
+            if (tokenAmountToCheck > balanceAmount) {
               return (
                 <p className="text-sm text-red-600">
                   Insufficient balance. You have {balanceAmount.toFixed(6)} {selectedToken}
@@ -1483,12 +1636,30 @@ export function AirtimeSwapCard() {
             }
             return null;
           })()}
+          {/* Airtime minimum amount validation */}
+          {selectedCategory === "airtime" && selectedAmount && !errors.amount && (() => {
+            const inputAmount = parseFloat(selectedAmount);
+            if (!isNaN(inputAmount) && inputAmount < 100) {
+              return (
+                <p className="text-sm text-red-600">
+                  Airtime purchases require a minimum of ₦100.
+                </p>
+              );
+            }
+            return null;
+          })()}
           {/* Electricity minimum amount validation */}
-          {selectedCategory === "electricity" && ngnAmount !== null && ngnAmount < 1000 && selectedAmount && !errors.amount && (
-            <p className="text-sm text-red-600">
-              Electricity purchases require a minimum of ₦1,000. Your amount (₦{ngnAmount.toLocaleString()}) is too low.
-            </p>
-          )}
+          {selectedCategory === "electricity" && selectedAmount && !errors.amount && (() => {
+            const inputAmount = parseFloat(selectedAmount);
+            if (!isNaN(inputAmount) && inputAmount < 1000) {
+              return (
+                <p className="text-sm text-red-600">
+                  Electricity purchases require a minimum of ₦1,000.
+                </p>
+              );
+            }
+            return null;
+          })()}
         </div>
 
         {/* Receive Section */}
@@ -1558,14 +1729,6 @@ export function AirtimeSwapCard() {
                     <p className="text-sm font-semibold text-green-900 mb-1">Meter Validated</p>
                     <p className="text-xs text-green-700">Name: {meterValidation.customerName}</p>
                     <p className="text-xs text-green-700">Address: {meterValidation.customerAddress}</p>
-                    <Button
-                      type="button"
-                      onClick={() => setMeterValidation(null)}
-                      variant="outline"
-                      className="mt-2 h-8 text-xs"
-                    >
-                      Re-validate
-                    </Button>
                   </div>
                 )}
               </div>
@@ -1585,49 +1748,52 @@ export function AirtimeSwapCard() {
                     <p className="text-sm font-semibold text-green-900 mb-1">Smart Card Validated</p>
                     <p className="text-xs text-green-700">Name: {smartCardValidation.customerName}</p>
                     <p className="text-xs text-green-700">Service: {smartCardValidation.service}</p>
-                    <Button
-                      type="button"
-                      onClick={() => setSmartCardValidation(null)}
-                      variant="outline"
-                      className="mt-2 h-8 text-xs"
-                    >
-                      Re-validate
-                    </Button>
                   </div>
                 )}
               </>
             )}
 
-            {ngnAmount && (
-              <div className="text-center py-3 bg-gray-50 rounded-xl border border-gray-200">
-                <p className="text-sm text-gray-600 mb-1">You will receive</p>
-                <p className="text-xl font-semibold text-gray-900">
-                  {(() => {
-                    // For data bundle, extract and show the data size from bundle description
-                    if (selectedCategory === "data_bundle" && selectedBundle) {
-                      const bundle = bundles.find(b => b.code === selectedBundle);
-                      if (bundle) {
-                        // Extract data size from description (e.g., "9MOBILE Daily 50MB" -> "50MB")
-                        // Match patterns like: 50MB, 100MB, 1.2GB, 2GB, etc.
-                        const dataSizeMatch = bundle.description.match(/(\d+(?:\.\d+)?)\s*(MB|GB|TB)/i);
-                        if (dataSizeMatch) {
-                          const size = dataSizeMatch[1];
-                          const unit = dataSizeMatch[2].toUpperCase();
-                          return `${size}${unit} data`;
+            {(ngnAmount || ((selectedCategory === "airtime" || selectedCategory === "electricity") && calculatedTokenAmount)) && (
+              <div className="text-left p-3 bg-gray-50 rounded-xl border border-gray-200">
+                {(selectedCategory === "airtime" || selectedCategory === "electricity") && calculatedTokenAmount ? (
+                  <>
+                    <p className="text-sm text-gray-600 mb-1">You will be charged</p>
+                    <p className="text-xl font-semibold text-gray-900">
+                      {calculatedTokenAmount.toFixed(8)} {selectedToken}
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-sm text-gray-600 mb-1">You will receive</p>
+                    <p className="text-xl font-semibold text-gray-900">
+                      {(() => {
+                        // For data bundle, extract and show the data size from bundle description
+                        if (selectedCategory === "data_bundle" && selectedBundle) {
+                          const bundle = bundles.find(b => b.code === selectedBundle);
+                          if (bundle) {
+                            // Extract data size from description (e.g., "9MOBILE Daily 50MB" -> "50MB")
+                            // Match patterns like: 50MB, 100MB, 1.2GB, 2GB, etc.
+                            const dataSizeMatch = bundle.description.match(/(\d+(?:\.\d+)?)\s*(MB|GB|TB)/i);
+                            if (dataSizeMatch) {
+                              const size = dataSizeMatch[1];
+                              const unit = dataSizeMatch[2].toUpperCase();
+                              return `${size}${unit} data`;
+                            }
+                            // Fallback: try to extract any size pattern
+                            const fallbackMatch = bundle.description.match(/(\d+(?:\.\d+)?)\s*(MB|GB|TB|mb|gb|tb)/i);
+                            if (fallbackMatch) {
+                              return `${fallbackMatch[1]}${fallbackMatch[2].toUpperCase()} data`;
+                            }
+                            // If no size found, show description
+                            return bundle.description;
+                          }
                         }
-                        // Fallback: try to extract any size pattern
-                        const fallbackMatch = bundle.description.match(/(\d+(?:\.\d+)?)\s*(MB|GB|TB|mb|gb|tb)/i);
-                        if (fallbackMatch) {
-                          return `${fallbackMatch[1]}${fallbackMatch[2].toUpperCase()} data`;
-                        }
-                        // If no size found, show description
-                        return bundle.description;
-                      }
-                    }
-                    // For other categories, show NGN amount
-                    return `₦${ngnAmount.toLocaleString()} NGN ${selectedCategory === "airtime" ? "airtime" : selectedCategory === "electricity" ? "electricity" : selectedCategory === "cable_tv" ? "cable subscription" : "credit"}`;
-                  })()}
-                </p>
+                        // For other categories, show NGN amount
+                        return `₦${ngnAmount?.toLocaleString()} NGN ${selectedCategory === "electricity" ? "electricity" : selectedCategory === "cable_tv" ? "cable subscription" : "credit"}`;
+                      })()}
+                    </p>
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -1646,16 +1812,42 @@ export function AirtimeSwapCard() {
             !selectedService ||
             (() => {
               const inputAmount = parseFloat(selectedAmount || "0");
-              return isNaN(inputAmount) || inputAmount <= 0 || inputAmount > balanceAmount;
+              if (isNaN(inputAmount) || inputAmount <= 0) return true;
+              // For airtime and electricity, inputAmount is NGN, so compare calculatedTokenAmount with balance
+              // For other categories, inputAmount is tokenAmount, so compare directly
+              let tokenAmountToCheck: number;
+              if ((selectedCategory === "airtime" || selectedCategory === "electricity")) {
+                if (calculatedTokenAmount !== null) {
+                  tokenAmountToCheck = calculatedTokenAmount;
+                } else if (exchangeRate) {
+                  // Compute on the fly if rate is available
+                  const rate = selectedToken === "USDC" ? exchangeRate.usdcToNgn : exchangeRate.usdtToNgn;
+                  tokenAmountToCheck = inputAmount / rate;
+                } else {
+                  // Rate not ready, skip balance check
+                  tokenAmountToCheck = 0;
+                }
+              } else {
+                tokenAmountToCheck = inputAmount;
+              }
+              return tokenAmountToCheck > balanceAmount;
             })() ||
             // Validate Nigerian phone number format for airtime and data bundle
             ((selectedCategory === "airtime" || selectedCategory === "data_bundle") && !/^0\d{10}$/.test(phoneNumber || "")) ||
+            // Validate minimum NGN amount for airtime (₦100 minimum)
+            (selectedCategory === "airtime" && (() => {
+              const inputNgnAmount = parseFloat(selectedAmount || "0");
+              return !isNaN(inputNgnAmount) && inputNgnAmount < 100;
+            })()) ||
             // Validate bundle code for data bundle
             (selectedCategory === "data_bundle" && !selectedBundle) ||
             // Validate meter for electricity
             (selectedCategory === "electricity" && !meterValidation) ||
             // Validate minimum NGN amount for electricity (₦1,000 minimum)
-            (selectedCategory === "electricity" && ngnAmount !== null && ngnAmount < 1000) ||
+            (selectedCategory === "electricity" && (() => {
+              const inputNgnAmount = parseFloat(selectedAmount || "0");
+              return !isNaN(inputNgnAmount) && inputNgnAmount < 1000;
+            })()) ||
             // Validate smart card and package for cable TV
             (selectedCategory === "cable_tv" && !smartCardValidation) ||
             (selectedCategory === "cable_tv" && !selectedPackage)

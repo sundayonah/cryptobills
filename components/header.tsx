@@ -2,7 +2,7 @@
 
 import { usePrivy, useWallets } from "@privy-io/react-auth";
 import { Button } from "@/components/ui/button";
-import { Wallet, LogOut, Mail, Copy, Check, ChevronDown } from "lucide-react";
+import { Wallet, LogOut, Mail, Copy, Check, ChevronDown, History } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { getWalletAddressFromPrivyUser } from "@/lib/privy-utils";
 import { NetworksDropdown } from "@/components/networks-dropdown";
@@ -13,6 +13,7 @@ import { useState, useEffect, useRef } from "react";
 import { SUPPORTED_NETWORKS, getNetworkByChainId } from "@/lib/networks";
 import { getNetworkLogoPath } from "@/lib/network-utils";
 import Image from "next/image";
+import { TransactionHistoryDrawer } from "@/components/transaction-history-drawer";
 
 export function Header() {
   const { ready, authenticated, login, logout, user } = usePrivy();
@@ -20,6 +21,7 @@ export function Header() {
   const { toast } = useToast();
   const [copied, setCopied] = useState(false);
   const [isMobileDropdownOpen, setIsMobileDropdownOpen] = useState(false);
+  const [isHistoryDrawerOpen, setIsHistoryDrawerOpen] = useState(false);
   const hasSyncedRef = useRef(false);
 
   // Sync user to database when authenticated
@@ -252,14 +254,14 @@ export function Header() {
                 </>
               )}
 
-              {/* Desktop: Sign out button */}
+              {/* Desktop: Transaction history button */}
               <Button
-                onClick={handleSignIn}
+                onClick={() => setIsHistoryDrawerOpen(true)}
                 variant="outline"
                 className="hidden sm:flex bg-white border-gray-300 text-gray-900 hover:bg-gray-50 text-sm min-h-9 px-3 py-2"
+                title="View transaction history"
               >
-                <LogOut className="h-4 w-4 mr-2" />
-                Sign out
+                <History className="h-4 w-4" />
               </Button>
             </>
           ) : (
@@ -278,8 +280,15 @@ export function Header() {
         <MobileDropdown
           isOpen={isMobileDropdownOpen}
           onClose={() => setIsMobileDropdownOpen(false)}
+          onOpenHistory={() => setIsHistoryDrawerOpen(true)}
         />
       </AnimatePresence>
+
+      {/* Transaction History Drawer */}
+      <TransactionHistoryDrawer
+        isOpen={isHistoryDrawerOpen}
+        onClose={() => setIsHistoryDrawerOpen(false)}
+      />
     </header>
   );
 }

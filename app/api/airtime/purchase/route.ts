@@ -19,6 +19,7 @@ const purchaseSchema = z.object({
   category: z.enum(['airtime', 'data_bundle', 'cable_tv', 'electricity', 'showmax', 'gaming']).optional().default('airtime'),
   networkChainId: z.number().optional(),
   serviceName: z.string().optional(),
+  serviceAmount: z.number().optional(), // NGN amount for airtime (when user inputs NGN)
   reference: z.string().optional(), // Allow custom reference for testing
 });
 
@@ -36,10 +37,29 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Get exact exchange rate from API
-    const exchangeRate = await getExchangeRate(validated.token as SupportedToken);
-    // Calculate NGN amount using exact rate
-    const ngnAmount = parseFloat(validated.tokenAmount) * exchangeRate;
+    // Calculate exchange rate and NGN amount
+    // If serviceAmount is provided (for airtime reverse calculator), use it as NGN amount
+    // Otherwise, calculate from tokenAmount
+    let exchangeRate: number;
+    let ngnAmount: number;
+
+    if (validated.serviceAmount && validated.serviceAmount > 0) {
+      // For airtime reverse calculator: serviceAmount is NGN, calculate exchange rate
+      ngnAmount = validated.serviceAmount;
+      const parsedTokenAmount = parseFloat(validated.tokenAmount);
+      if (!isFinite(parsedTokenAmount) || parsedTokenAmount <= 0) {
+        return NextResponse.json(
+          { error: 'Invalid token amount. Must be greater than zero.' },
+          { status: 400 }
+        );
+      }
+      exchangeRate = ngnAmount / parsedTokenAmount;
+    } else {
+      // Standard flow: calculate NGN from tokenAmount
+      exchangeRate = await getExchangeRate(validated.token as SupportedToken);
+      ngnAmount = parseFloat(validated.tokenAmount) * exchangeRate;
+    }
+
     const roundedNgnAmount = Math.round(ngnAmount);
 
     // Check PayBeta wallet balance before processing
@@ -133,7 +153,7 @@ export async function POST(request: NextRequest) {
         service: validated.service,
         serviceName,
         phoneNumber: validated.phoneNumber,
-        serviceAmount: roundedNgnAmount, // Amount in NGN (integer)
+        serviceAmount: validated.serviceAmount || roundedNgnAmount, // Use serviceAmount if provided (airtime reverse calculator), otherwise rounded amount
         paybetaReference: reference,
         status: 'payment_received',
         paymentReceivedAt: new Date(),
@@ -151,7 +171,7 @@ export async function POST(request: NextRequest) {
         accountNumber: undefined, // Add when implementing other categories
         meterNumber: undefined, // Add when implementing electricity
         decoderNumber: undefined, // Add when implementing cable TV
-        amount: roundedNgnAmount, // Ensure integer
+        amount: validated.serviceAmount || roundedNgnAmount, // Use serviceAmount (user's NGN input) if provided, otherwise rounded amount
         reference,
       });
     } catch (processError: any) {

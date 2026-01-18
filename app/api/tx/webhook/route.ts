@@ -1,0 +1,154 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { prisma } from '@/lib/prisma';
+
+/**
+ * PayBeta Webhook Endpoint
+ * POST /api/tx/webhook
+ * 
+ * Receives real-time transaction status updates from PayBeta.
+ * PayBeta will call this endpoint when transaction status changes.
+ * 
+ * Configure this URL in your PayBeta dashboard:
+ * https://www.cryptobilz.xyz/api/tx/webhook
+ */
+export async function POST(request: NextRequest) {
+    try {
+        const body = await request.json();
+
+        // Validate webhook payload structure
+        if (!body.reference) {
+            return NextResponse.json(
+                { error: 'Missing reference in webhook payload' },
+                { status: 400 }
+            );
+        }
+
+        const { reference, code, status, message, data } = body;
+
+        // Find transaction by PayBeta reference
+        const transaction = await prisma.transaction.findUnique({
+            where: { paybetaReference: reference },
+        });
+
+        if (!transaction) {
+            // Transaction not found - log but return 200 to prevent PayBeta from retrying
+            console.warn(`Webhook received for unknown transaction reference: ${reference}`);
+            return NextResponse.json(
+                { message: 'Transaction not found, but webhook received' },
+                { status: 200 }
+            );
+        }
+
+        // Map PayBeta status codes to our transaction status
+        // PayBeta codes: '00' = successful, '01' = pending, '02' = failed, '99' = not found
+        let dbStatus: string;
+        let errorMessage: string | null = null;
+
+        if (code === '00') {
+            // Successful - check paymentStatus for more details
+            if (data?.paymentStatus?.toLowerCase() === 'delivered') {
+                dbStatus = 'completed';
+            } else {
+                dbStatus = 'processing'; // Still processing even if code is '00'
+            }
+        } else if (code === '01') {
+            dbStatus = 'processing';
+            errorMessage = message || 'Transaction is pending';
+        } else if (code === '02') {
+            dbStatus = 'failed';
+            errorMessage = message || 'Transaction failed';
+        } else if (code === '99') {
+            dbStatus = 'failed';
+            errorMessage = message || 'Transaction not found or invalid reference';
+        } else {
+            // Unknown code - keep current status but update error message
+            dbStatus = transaction.status;
+            errorMessage = message || 'Unknown transaction status';
+        }
+
+        // Prepare update data
+        const updateData: any = {
+            status: dbStatus,
+            errorMessage,
+        };
+
+        // Update PayBeta transaction ID if provided
+        if (data?.transactionId) {
+            updateData.paybetaTransactionId = data.transactionId;
+        }
+
+        // Update transaction-specific fields if available
+        if (data) {
+            // For electricity: update token, unit, biller, customerId
+            if (transaction.category === 'electricity') {
+                if (data.token && data.token !== '0') {
+                    updateData.electricityToken = data.token;
+                }
+                if (data.unit && data.unit !== '0') {
+                    updateData.electricityUnit = data.unit;
+                }
+            }
+
+            // Update biller and customerId if available
+            if (data.biller) {
+                updateData.biller = data.biller;
+            }
+            if (data.customerId) {
+                updateData.customerId = data.customerId;
+            }
+
+            // Update charged amount and commission if available
+            if (data.amountPaid) {
+                updateData.chargedAmount = data.amountPaid;
+            }
+            if (data.commission !== undefined) {
+                updateData.commission = data.commission;
+            }
+        }
+
+        // Set completedAt if status is 'completed'
+        if (dbStatus === 'completed') {
+            updateData.completedAt = new Date();
+        }
+
+        // Update transaction in database
+        const updatedTransaction = await prisma.transaction.update({
+            where: { id: transaction.id },
+            data: updateData,
+        });
+
+        // Log webhook processing
+        console.log(`Webhook processed: Transaction ${transaction.id} status updated to ${dbStatus}`);
+
+        // Return 200 to acknowledge receipt (PayBeta expects 200 for successful webhook processing)
+        return NextResponse.json({
+            success: true,
+            message: 'Webhook processed successfully',
+            transactionId: updatedTransaction.id,
+            status: updatedTransaction.status,
+        });
+    } catch (error: any) {
+        console.error('Error processing PayBeta webhook:', error);
+
+        // Return 500 so PayBeta knows to retry
+        return NextResponse.json(
+            {
+                error: 'Failed to process webhook',
+                details: error.message || 'Internal server error',
+            },
+            { status: 500 }
+        );
+    }
+}
+
+/**
+ * GET endpoint for webhook verification (if PayBeta requires it)
+ * Some webhook providers require GET endpoints for verification
+ */
+export async function GET(request: NextRequest) {
+    return NextResponse.json({
+        message: 'PayBeta webhook endpoint is active',
+        endpoint: '/api/tx/webhook',
+        method: 'POST',
+    });
+}

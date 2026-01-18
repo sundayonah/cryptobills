@@ -25,6 +25,7 @@ const purchaseSchema = z.object({
     networkChainId: z.number().optional(),
     serviceName: z.string().optional(),
     reference: z.string().optional(),
+    serviceAmount: z.number().optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -40,21 +41,42 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        // Get exact exchange rate from API
-        const exchangeRate = await getExchangeRate(validated.token as SupportedToken);
-        // Calculate NGN amount using exact rate
-        const ngnAmount = parseFloat(validated.tokenAmount) * exchangeRate;
+        // Calculate exchange rate and NGN amount
+        // If serviceAmount is provided (for electricity reverse calculator), use it as NGN amount
+        // Otherwise, calculate from tokenAmount
+        let exchangeRate: number;
+        let ngnAmount: number;
+
+        if (validated.serviceAmount && validated.serviceAmount > 0) {
+            // For electricity reverse calculator: serviceAmount is NGN, calculate exchange rate
+            ngnAmount = validated.serviceAmount;
+            const parsedTokenAmount = parseFloat(validated.tokenAmount);
+            if (!isFinite(parsedTokenAmount) || parsedTokenAmount <= 0) {
+                return NextResponse.json(
+                    { error: 'Invalid token amount. Must be greater than zero.' },
+                    { status: 400 }
+                );
+            }
+            exchangeRate = ngnAmount / parsedTokenAmount;
+        } else {
+            // Standard flow: calculate NGN from tokenAmount
+            exchangeRate = await getExchangeRate(validated.token as SupportedToken);
+            ngnAmount = parseFloat(validated.tokenAmount) * exchangeRate;
+        }
+
         const roundedNgnAmount = Math.round(ngnAmount);
 
         // Validate minimum amount for electricity (PayBeta requires minimum 1000 NGN)
+        // Use serviceAmount if provided (from reverse calculator), otherwise use roundedNgnAmount
+        const amountToValidate = validated.serviceAmount || roundedNgnAmount;
         const ELECTRICITY_MIN_AMOUNT_NGN = 1000;
-        if (roundedNgnAmount < ELECTRICITY_MIN_AMOUNT_NGN) {
+        if (amountToValidate < ELECTRICITY_MIN_AMOUNT_NGN) {
             return NextResponse.json(
                 {
-                    error: `Electricity purchases require a minimum of ₦${ELECTRICITY_MIN_AMOUNT_NGN.toLocaleString()}. Your amount (₦${roundedNgnAmount.toLocaleString()}) is too low.`,
+                    error: `Electricity purchases require a minimum of ₦${ELECTRICITY_MIN_AMOUNT_NGN.toLocaleString()}. Your amount (₦${amountToValidate.toLocaleString()}) is too low.`,
                     details: {
                         minimumAmount: ELECTRICITY_MIN_AMOUNT_NGN,
-                        providedAmount: roundedNgnAmount,
+                        providedAmount: amountToValidate,
                     },
                 },
                 { status: 400 }
@@ -150,7 +172,7 @@ export async function POST(request: NextRequest) {
                 meterType: validated.meterType,
                 customerName: validated.customerName,
                 customerAddress: validated.customerAddress,
-                serviceAmount: roundedNgnAmount,
+                serviceAmount: validated.serviceAmount || roundedNgnAmount,
                 paybetaReference: reference,
                 status: 'payment_received',
                 paymentReceivedAt: new Date(),
@@ -165,7 +187,7 @@ export async function POST(request: NextRequest) {
                 service: validated.service,
                 meterNumber: validated.meterNumber,
                 meterType: validated.meterType,
-                amount: roundedNgnAmount,
+                amount: validated.serviceAmount || roundedNgnAmount, // Use serviceAmount if provided (electricity reverse calculator), otherwise rounded amount
                 customerName: validated.customerName,
                 customerAddress: validated.customerAddress,
                 reference,

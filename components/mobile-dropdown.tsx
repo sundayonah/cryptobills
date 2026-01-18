@@ -7,7 +7,7 @@ import { NetworksDropdown } from "@/components/networks-dropdown";
 import { getWalletAddressFromPrivyUser } from "@/lib/privy-utils";
 import { copyToClipboard } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
-import { Wallet, Copy, Check, X, ChevronDown } from "lucide-react";
+import { Wallet, Copy, Check, X, ChevronDown, History } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SUPPORTED_NETWORKS, getNetworkByChainId } from "@/lib/networks";
 import React from "react";
@@ -15,9 +15,10 @@ import React from "react";
 interface MobileDropdownProps {
     isOpen: boolean;
     onClose: () => void;
+    onOpenHistory?: () => void;
 }
 
-export function MobileDropdown({ isOpen, onClose }: MobileDropdownProps) {
+export function MobileDropdown({ isOpen, onClose, onOpenHistory }: MobileDropdownProps) {
     const { authenticated, logout, user } = usePrivy();
     const { wallets } = useWallets();
     const { toast } = useToast();
@@ -116,6 +117,24 @@ export function MobileDropdown({ isOpen, onClose }: MobileDropdownProps) {
                                                     <Copy className="h-4 w-4 text-gray-400 flex-shrink-0" />
                                                 )}
                                             </button>
+                                        </div>
+                                    )}
+
+                                    {/* Transaction History Button */}
+                                    {onOpenHistory && (
+                                        <div className="space-y-2">
+                                            <label className="text-sm font-medium text-gray-700">Transaction History</label>
+                                            <Button
+                                                onClick={() => {
+                                                    onOpenHistory();
+                                                    onClose();
+                                                }}
+                                                variant="outline"
+                                                className="w-full bg-white border-gray-300 text-gray-900 hover:bg-gray-50"
+                                            >
+                                                <History className="h-4 w-4 mr-2" />
+                                                View Transaction History
+                                            </Button>
                                         </div>
                                     )}
 
