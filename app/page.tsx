@@ -2,6 +2,7 @@
 
 import { Header } from "@/components/header";
 import { AirtimeSwapCard } from "@/components/airtime-swap-card";
+import { FloatingLogosBackground } from "@/components/floating-logos-background";
 import { TitleSkeleton } from "@/components/ui/loading";
 import { motion } from "framer-motion";
 import { usePrivy } from "@privy-io/react-auth";
@@ -10,10 +11,13 @@ export default function Home() {
   const { ready } = usePrivy();
 
   return (
-    <div className="min-h-screen bg-white text-gray-900">
+    <div className="min-h-screen bg-white text-gray-900 relative">
+      {/* Floating Logos Background */}
+      <FloatingLogosBackground />
+
       <Header />
 
-      <main className="container mx-auto px-4 pt-32 md:pt-64 pb-12">
+      <main className="container mx-auto px-4 pt-32 md:pt-64 pb-12 relative z-0" style={{ pointerEvents: 'auto' }}>
         {!ready ? (
           <TitleSkeleton />
         ) : (
