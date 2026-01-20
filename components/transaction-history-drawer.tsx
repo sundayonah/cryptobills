@@ -218,7 +218,7 @@ export function TransactionHistoryDrawer({ isOpen, onClose }: TransactionHistory
                             <h2 className="text-xl font-bold text-gray-900">Transaction History</h2>
                             <button
                                 onClick={onClose}
-                                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                                className="p-2 hover:bg-gray-100 rounded-2xl transition-colors"
                             >
                                 <X className="h-5 w-5 text-gray-600" />
                             </button>
@@ -243,7 +243,7 @@ export function TransactionHistoryDrawer({ isOpen, onClose }: TransactionHistory
                                             key={tx.id}
                                             initial={{ opacity: 0, y: 10 }}
                                             animate={{ opacity: 1, y: 0 }}
-                                            className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow"
+                                            className="border border-gray-200 rounded-2xl p-4 hover:shadow-md transition-shadow"
                                         >
                                             {/* Header with status */}
                                             <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 mb-3">
