@@ -60,7 +60,7 @@ interface ExchangeRate {
 }
 
 export function AirtimeSwapCard() {
-  const { ready, authenticated, user, login } = usePrivy();
+  const { ready, authenticated, user, login, connectWallet } = usePrivy();
   const { wallets } = useWallets();
   const { toast } = useToast();
   const { getBalance, isLoading: isLoadingBalance, refreshBalances } = useBalance();
@@ -778,7 +778,7 @@ export function AirtimeSwapCard() {
         variant: "destructive",
       });
       // Open Privy modal to connect wallet
-      login();
+      connectWallet();
       return;
     }
 
@@ -1826,7 +1826,7 @@ export function AirtimeSwapCard() {
             if (!authenticated) {
               login();
             } else {
-              login(); // This will trigger wallet connection
+              connectWallet(); // Use connectWallet() for authenticated users
             }
           } : undefined}
           disabled={
@@ -1840,8 +1840,6 @@ export function AirtimeSwapCard() {
               (() => {
                 const inputAmount = parseFloat(selectedAmount || "0");
                 if (isNaN(inputAmount) || inputAmount <= 0) return true;
-                // For airtime and electricity, inputAmount is NGN, so compare calculatedTokenAmount with balance
-                // For other categories, inputAmount is tokenAmount, so compare directly
                 let tokenAmountToCheck: number;
                 if ((selectedCategory === "airtime" || selectedCategory === "electricity")) {
                   if (calculatedTokenAmount !== null) {
