@@ -1103,6 +1103,9 @@ export function AirtimeSwapCard() {
           });
         }
 
+        // Refresh balance after successful transaction
+        refreshBalances();
+
         // Reset form
         resetForm();
       } else {
@@ -1155,7 +1158,7 @@ export function AirtimeSwapCard() {
               setSelectedBundle("");
             }}
           >
-            <SelectTrigger className="w-full h-10 bg-gray-50 border-gray-300 text-gray-900 rounded-xl">
+            <SelectTrigger className="w-full h-12 bg-gray-50 border-gray-300 text-gray-900 rounded-2xl">
               <SelectValue />
             </SelectTrigger>
             <SelectContent className="bg-white border-gray-200">
@@ -1183,7 +1186,7 @@ export function AirtimeSwapCard() {
           <div className="space-y-2">
             <label className="text-sm text-gray-600">Provider</label>
             {loadingProviders ? (
-              <div className="w-full h-12 bg-purple-50 border border-purple-200 rounded-xl flex items-center justify-center">
+              <div className="w-full h-12 bg-purple-50 border border-purple-200 rounded-2xl flex items-center justify-center">
                 <LoadingSpinner size="sm" className="text-purple-600" />
                 <span className="ml-2 text-sm text-purple-600">Loading providers...</span>
               </div>
@@ -1202,7 +1205,7 @@ export function AirtimeSwapCard() {
                 }}
                 disabled={providers.length === 0 || !UTILITY_CATEGORIES.find(cat => cat.id === selectedCategory)?.enabled}
               >
-                <SelectTrigger className="w-full h-14 bg-purple-600 border-purple-500 text-white rounded-xl hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                <SelectTrigger className="w-full h-12 bg-purple-600 border-purple-500 text-white rounded-2xl hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed">
                   <SelectValue placeholder={
                     !UTILITY_CATEGORIES.find(cat => cat.id === selectedCategory)?.enabled
                       ? "Service not available"
@@ -1275,7 +1278,7 @@ export function AirtimeSwapCard() {
           <div className="space-y-2">
             <label className="text-sm text-gray-600">Data Bundle</label>
             {loadingBundles ? (
-              <div className="w-full h-14 bg-gray-50 border border-gray-200 rounded-xl flex items-center justify-center">
+              <div className="w-full h-12 bg-gray-50 border border-gray-200 rounded-2xl flex items-center justify-center">
                 <LoadingSpinner size="sm" className="text-gray-600" />
                 <span className="ml-2 text-sm text-gray-600">Loading bundles...</span>
               </div>
@@ -1297,7 +1300,7 @@ export function AirtimeSwapCard() {
                   }
                 }}
               >
-                <SelectTrigger className="w-full h-14 bg-gray-50 border-gray-300 text-gray-900 rounded-xl hover:bg-gray-100">
+                <SelectTrigger className="w-full h-12 bg-gray-50 border-gray-300 text-gray-900 rounded-2xl hover:bg-gray-100">
                   <SelectValue placeholder="Select data bundle">
                     {selectedBundle && bundles.find(b => b.code === selectedBundle) && (
                       <div className="flex items-center justify-between w-full pr-2 gap-2 min-w-0">
@@ -1333,7 +1336,7 @@ export function AirtimeSwapCard() {
                 </SelectContent>
               </Select>
             ) : (
-              <div className="w-full h-14 bg-gray-50 border border-gray-200 rounded-xl flex items-center justify-center">
+              <div className="w-full h-12 bg-gray-50 border border-gray-200 rounded-2xl flex items-center justify-center">
                 <span className="text-sm text-gray-500">No bundles available</span>
               </div>
             )}
@@ -1348,7 +1351,7 @@ export function AirtimeSwapCard() {
           <div className="space-y-2">
             <label className="text-xs text-gray-500 mb-1 block">Select Package</label>
             {loadingCablePackages ? (
-              <div className="w-full h-14 bg-gray-50 border border-gray-200 rounded-xl flex items-center justify-center">
+              <div className="w-full h-12 bg-gray-50 border border-gray-200 rounded-2xl flex items-center justify-center">
                 <Loader2 className="h-4 w-4 animate-spin text-gray-600 mr-2" />
                 <span className="ml-2 text-sm text-gray-600">Loading packages...</span>
               </div>
@@ -1369,7 +1372,7 @@ export function AirtimeSwapCard() {
                   }
                 }}
               >
-                <SelectTrigger className="w-full h-14 bg-gray-50 border-gray-300 text-gray-900 rounded-xl hover:bg-gray-100">
+                <SelectTrigger className="w-full h-12 bg-gray-50 border-gray-300 text-gray-900 rounded-2xl hover:bg-gray-100">
                   <SelectValue placeholder="Select cable package">
                     {selectedPackage && cablePackages.find(p => p.code === selectedPackage) && (
                       <div className="flex items-center justify-between w-full pr-2 gap-2 min-w-0">
@@ -1405,7 +1408,7 @@ export function AirtimeSwapCard() {
                 </SelectContent>
               </Select>
             ) : (
-              <div className="w-full h-14 bg-gray-50 border border-gray-200 rounded-xl flex items-center justify-center">
+              <div className="w-full h-12 bg-gray-50 border border-gray-200 rounded-2xl flex items-center justify-center">
                 <span className="text-sm text-gray-500">No packages available</span>
               </div>
             )}
@@ -1430,7 +1433,7 @@ export function AirtimeSwapCard() {
               max={config.max_amount}
               placeholder="0"
               disabled={selectedCategory === "data_bundle" || selectedCategory === "cable_tv"}
-              className="flex-1 bg-gray-50 border-gray-300 text-gray-900 text-2xl h-12 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-gray-100"
+              className="flex-1 bg-gray-50 border-gray-300 text-gray-900 text-2xl h-12 rounded-2xl disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-gray-100"
               onKeyDown={(e) => {
                 // Block decimal point, comma, minus, and scientific notation for airtime and electricity
                 if (selectedCategory === "airtime" || selectedCategory === "electricity") {
@@ -1495,7 +1498,7 @@ export function AirtimeSwapCard() {
                 // Token change will trigger useEffect to recalculate exact amount for bundles/packages
               }}
             >
-              <SelectTrigger className="w-[180px] h-12 bg-gray-50 border-gray-300 text-gray-900 rounded-xl">
+              <SelectTrigger className="w-[180px] h-12 bg-gray-50 border-gray-300 text-gray-900 rounded-2xl">
                 <SelectValue>
                   <div className="flex items-center justify-between w-full pr-2">
                     <div className="flex items-center gap-2">
@@ -1618,9 +1621,37 @@ export function AirtimeSwapCard() {
           {errors.amount && (
             <p className="text-sm text-red-600">{errors.amount.message}</p>
           )}
+          {/* Airtime minimum amount validation */}
+          {selectedCategory === "airtime" && selectedAmount && !errors.amount && (() => {
+            const inputAmount = parseFloat(selectedAmount);
+            if (!isNaN(inputAmount) && inputAmount < 100) {
+              return (
+                <p className="text-sm text-red-600">
+                  Airtime purchases require a minimum of ₦100.
+                </p>
+              );
+            }
+            return null;
+          })()}
+          {/* Electricity minimum amount validation */}
+          {selectedCategory === "electricity" && selectedAmount && !errors.amount && (() => {
+            const inputAmount = parseFloat(selectedAmount);
+            if (!isNaN(inputAmount) && inputAmount < 1000) {
+              return (
+                <p className="text-sm text-red-600">
+                  Electricity purchases require a minimum of ₦1,000.
+                </p>
+              );
+            }
+            return null;
+          })()}
           {selectedAmount && !errors.amount && (() => {
             const inputAmount = parseFloat(selectedAmount);
             if (isNaN(inputAmount) || inputAmount <= 0) return null;
+
+            // Check minimum amounts first (already handled above)
+            if (selectedCategory === "airtime" && inputAmount < 100) return null;
+            if (selectedCategory === "electricity" && inputAmount < 1000) return null;
 
             // For airtime and electricity, inputAmount is NGN, so compare calculatedTokenAmount with balance
             // For other categories, inputAmount is tokenAmount, so compare directly
@@ -1644,30 +1675,6 @@ export function AirtimeSwapCard() {
               return (
                 <p className="text-sm text-red-600">
                   Insufficient balance. You have {balanceAmount.toFixed(6)} {selectedToken}
-                </p>
-              );
-            }
-            return null;
-          })()}
-          {/* Airtime minimum amount validation */}
-          {selectedCategory === "airtime" && selectedAmount && !errors.amount && (() => {
-            const inputAmount = parseFloat(selectedAmount);
-            if (!isNaN(inputAmount) && inputAmount < 100) {
-              return (
-                <p className="text-sm text-red-600">
-                  Airtime purchases require a minimum of ₦100.
-                </p>
-              );
-            }
-            return null;
-          })()}
-          {/* Electricity minimum amount validation */}
-          {selectedCategory === "electricity" && selectedAmount && !errors.amount && (() => {
-            const inputAmount = parseFloat(selectedAmount);
-            if (!isNaN(inputAmount) && inputAmount < 1000) {
-              return (
-                <p className="text-sm text-red-600">
-                  Electricity purchases require a minimum of ₦1,000.
                 </p>
               );
             }
@@ -1699,7 +1706,7 @@ export function AirtimeSwapCard() {
                         ? "Enter smart card number"
                         : "Enter account number"
                 }
-                className="w-full bg-gray-50 border-gray-300 text-gray-900 h-12 rounded-xl disabled:opacity-50"
+                className="w-full bg-gray-50 border-gray-300 text-gray-900 h-12 rounded-2xl disabled:opacity-50"
                 disabled={!UTILITY_CATEGORIES.find(cat => cat.id === selectedCategory)?.enabled}
                 {...register("phoneNumber")}
               />
@@ -1719,7 +1726,7 @@ export function AirtimeSwapCard() {
                     setMeterValidation(null); // Reset validation when meter type changes
                   }}
                 >
-                  <SelectTrigger className="w-full bg-gray-50 border-gray-300 text-gray-900 h-12 rounded-xl">
+                  <SelectTrigger className="w-full bg-gray-50 border-gray-300 text-gray-900 h-12 rounded-2xl">
                     <SelectValue>
                       <span className="capitalize">{meterType}</span>
                     </SelectValue>
@@ -1731,14 +1738,14 @@ export function AirtimeSwapCard() {
                 </Select>
                 {/* Auto-validation status */}
                 {validatingMeter && (
-                  <div className="w-full h-12 bg-blue-50 border border-blue-200 rounded-xl flex items-center justify-center">
+                  <div className="w-full h-12 bg-blue-50 border border-blue-200 rounded-2xl flex items-center justify-center">
                     <Loader2 className="h-4 w-4 animate-spin text-blue-600 mr-2" />
                     <span className="text-sm text-blue-600">Validating meter...</span>
                   </div>
                 )}
                 {/* Meter Validation Info */}
                 {meterValidation && (
-                  <div className="p-3 bg-green-50 border border-green-200 rounded-xl">
+                  <div className="p-3 bg-green-50 border border-green-200 rounded-2xl">
                     <p className="text-sm font-semibold text-green-900 mb-1">Meter Validated</p>
                     <p className="text-xs text-green-700">Name: {meterValidation.customerName}</p>
                     <p className="text-xs text-green-700">Address: {meterValidation.customerAddress}</p>
@@ -1751,13 +1758,13 @@ export function AirtimeSwapCard() {
             {selectedCategory === "cable_tv" && (
               <>
                 {validatingSmartCard && (
-                  <div className="w-full h-12 bg-blue-50 border border-blue-200 rounded-xl flex items-center justify-center">
+                  <div className="w-full h-12 bg-blue-50 border border-blue-200 rounded-2xl flex items-center justify-center">
                     <Loader2 className="h-4 w-4 animate-spin text-blue-600 mr-2" />
                     <span className="text-sm text-blue-600">Validating smart card...</span>
                   </div>
                 )}
                 {smartCardValidation && (
-                  <div className="p-3 bg-green-50 border border-green-200 rounded-xl">
+                  <div className="p-3 bg-green-50 border border-green-200 rounded-2xl">
                     <p className="text-sm font-semibold text-green-900 mb-1">Smart Card Validated</p>
                     <p className="text-xs text-green-700">Name: {smartCardValidation.customerName}</p>
                     <p className="text-xs text-green-700">Service: {smartCardValidation.service}</p>
@@ -1767,7 +1774,7 @@ export function AirtimeSwapCard() {
             )}
 
             {(ngnAmount || ((selectedCategory === "airtime" || selectedCategory === "electricity") && calculatedTokenAmount)) && (
-              <div className="text-left p-3 bg-gray-50 rounded-xl border border-gray-200">
+              <div className="text-left p-3 bg-gray-50 rounded-2xl border border-gray-200">
                 {(selectedCategory === "airtime" || selectedCategory === "electricity") && calculatedTokenAmount ? (
                   <>
                     <p className="text-sm text-gray-600 mb-1">You will be charged</p>
@@ -1814,58 +1821,66 @@ export function AirtimeSwapCard() {
 
         {/* Purchase Button */}
         <Button
-          type="submit"
+          type={(!authenticated || !getWalletAddressFromPrivyUser(user || {})) ? "button" : "submit"}
+          onClick={(!authenticated || !getWalletAddressFromPrivyUser(user || {})) ? () => {
+            if (!authenticated) {
+              login();
+            } else {
+              login(); // This will trigger wallet connection
+            }
+          } : undefined}
           disabled={
             isProcessing ||
-            !authenticated ||
-            !getWalletAddressFromPrivyUser(user || {}) ||
             !UTILITY_CATEGORIES.find(cat => cat.id === selectedCategory)?.enabled ||
-            !selectedAmount ||
-            !phoneNumber ||
-            !selectedService ||
-            (() => {
-              const inputAmount = parseFloat(selectedAmount || "0");
-              if (isNaN(inputAmount) || inputAmount <= 0) return true;
-              // For airtime and electricity, inputAmount is NGN, so compare calculatedTokenAmount with balance
-              // For other categories, inputAmount is tokenAmount, so compare directly
-              let tokenAmountToCheck: number;
-              if ((selectedCategory === "airtime" || selectedCategory === "electricity")) {
-                if (calculatedTokenAmount !== null) {
-                  tokenAmountToCheck = calculatedTokenAmount;
-                } else if (exchangeRate) {
-                  // Compute on the fly if rate is available
-                  const rate = selectedToken === "USDC" ? exchangeRate.usdcToNgn : exchangeRate.usdtToNgn;
-                  tokenAmountToCheck = inputAmount / rate;
+            // Only validate form fields if user is authenticated and has wallet
+            (authenticated && !!getWalletAddressFromPrivyUser(user || {}) && (
+              !selectedAmount ||
+              !phoneNumber ||
+              !selectedService ||
+              (() => {
+                const inputAmount = parseFloat(selectedAmount || "0");
+                if (isNaN(inputAmount) || inputAmount <= 0) return true;
+                // For airtime and electricity, inputAmount is NGN, so compare calculatedTokenAmount with balance
+                // For other categories, inputAmount is tokenAmount, so compare directly
+                let tokenAmountToCheck: number;
+                if ((selectedCategory === "airtime" || selectedCategory === "electricity")) {
+                  if (calculatedTokenAmount !== null) {
+                    tokenAmountToCheck = calculatedTokenAmount;
+                  } else if (exchangeRate) {
+                    // Compute on the fly if rate is available
+                    const rate = selectedToken === "USDC" ? exchangeRate.usdcToNgn : exchangeRate.usdtToNgn;
+                    tokenAmountToCheck = inputAmount / rate;
+                  } else {
+                    // Rate not ready, skip balance check
+                    tokenAmountToCheck = 0;
+                  }
                 } else {
-                  // Rate not ready, skip balance check
-                  tokenAmountToCheck = 0;
+                  tokenAmountToCheck = inputAmount;
                 }
-              } else {
-                tokenAmountToCheck = inputAmount;
-              }
-              return tokenAmountToCheck > balanceAmount;
-            })() ||
-            // Validate Nigerian phone number format for airtime and data bundle
-            ((selectedCategory === "airtime" || selectedCategory === "data_bundle") && !/^0\d{10}$/.test(phoneNumber || "")) ||
-            // Validate minimum NGN amount for airtime (₦100 minimum)
-            (selectedCategory === "airtime" && (() => {
-              const inputNgnAmount = parseFloat(selectedAmount || "0");
-              return !isNaN(inputNgnAmount) && inputNgnAmount < 100;
-            })()) ||
-            // Validate bundle code for data bundle
-            (selectedCategory === "data_bundle" && !selectedBundle) ||
-            // Validate meter for electricity
-            (selectedCategory === "electricity" && !meterValidation) ||
-            // Validate minimum NGN amount for electricity (₦1,000 minimum)
-            (selectedCategory === "electricity" && (() => {
-              const inputNgnAmount = parseFloat(selectedAmount || "0");
-              return !isNaN(inputNgnAmount) && inputNgnAmount < 1000;
-            })()) ||
-            // Validate smart card and package for cable TV
-            (selectedCategory === "cable_tv" && !smartCardValidation) ||
-            (selectedCategory === "cable_tv" && !selectedPackage)
+                return tokenAmountToCheck > balanceAmount;
+              })() ||
+              // Validate Nigerian phone number format for airtime and data bundle
+              ((selectedCategory === "airtime" || selectedCategory === "data_bundle") && !/^0\d{10}$/.test(phoneNumber || "")) ||
+              // Validate minimum NGN amount for airtime (₦100 minimum)
+              (selectedCategory === "airtime" && (() => {
+                const inputNgnAmount = parseFloat(selectedAmount || "0");
+                return !isNaN(inputNgnAmount) && inputNgnAmount < 100;
+              })()) ||
+              // Validate bundle code for data bundle
+              (selectedCategory === "data_bundle" && !selectedBundle) ||
+              // Validate meter for electricity
+              (selectedCategory === "electricity" && !meterValidation) ||
+              // Validate minimum NGN amount for electricity (₦1,000 minimum)
+              (selectedCategory === "electricity" && (() => {
+                const inputNgnAmount = parseFloat(selectedAmount || "0");
+                return !isNaN(inputNgnAmount) && inputNgnAmount < 1000;
+              })()) ||
+              // Validate smart card and package for cable TV
+              (selectedCategory === "cable_tv" && !smartCardValidation) ||
+              (selectedCategory === "cable_tv" && !selectedPackage)
+            ))
           }
-          className="w-full h-14 bg-gray-900 hover:bg-gray-800 text-white rounded-xl text-lg font-semibold border border-gray-900 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full h-12 bg-gray-900 hover:bg-gray-800 text-white rounded-xl text-lg font-semibold border border-gray-900 disabled:opacity-50 disabled:cursor-not-allowed px-4"
         >
           {!authenticated ? (
             <>
@@ -1928,7 +1943,7 @@ export function AirtimeSwapCard() {
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-gray-600">Token</span>
                   </div>
-                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 flex items-center justify-between gap-2">
+                  <div className="bg-gray-50 border border-gray-200 rounded-2xl p-3 flex items-center justify-between gap-2">
                     <p className="text-lg font-semibold text-gray-900 tracking-wider break-all font-mono flex-1">
                       {receipt.token}
                     </p>
