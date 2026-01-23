@@ -19,7 +19,7 @@ export function NetworksDropdown() {
   const { wallets } = useWallets();
   const { refreshBalances } = useBalance();
   const [selectedNetwork, setSelectedNetwork] = useState<Network>(
-    SUPPORTED_NETWORKS[0] // Default to Polygon
+    SUPPORTED_NETWORKS[0] // Default to first network (Avalanche)
   );
 
   // Get the current network from the connected wallet
@@ -126,11 +126,11 @@ export function NetworksDropdown() {
     // Refresh balances after network switch
     // Pass target chainId directly to avoid race conditions with wallet state updates
     if (switched) {
-      // Use a small delay to ensure the switch operation has completed
+      // Use a delay to ensure the switch operation has completed
       // but pass the target chainId directly to fetchBalances
       setTimeout(() => {
         refreshBalances(network.id);
-      }, 300);
+      }, 1000); // Increased delay to ensure chain switch completes
     }
   };
 

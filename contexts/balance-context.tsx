@@ -220,7 +220,7 @@ export function BalanceProvider({ children }: { children: ReactNode }) {
       }
 
       if (!provider || !chainId) {
-        console.warn("No provider available to fetch balances");
+        console.warn("No provider available to fetch balances", { provider: !!provider, chainId });
         setBalances({ USDC: null, USDT: null });
         setIsLoading(false);
         return;
@@ -232,6 +232,7 @@ export function BalanceProvider({ children }: { children: ReactNode }) {
         137,    // Polygon Mainnet
         42161,  // Arbitrum Mainnet
         8453,   // Base Mainnet
+        43114,  // Avalanche C-Chain Mainnet
         // 56,     // BSC (Binance Smart Chain) Mainnet - temporarily commented out
       ];
       if (!supportedChainIds.includes(chainId)) {
@@ -331,7 +332,8 @@ export const useBalance = () => {
 // Helper function to get RPC URL for a chain
 function getRpcUrlForChain(chainId: number): string | null {
   const rpcUrls: Record<number, string> = {
-    1: "https://eth-mainnet.g.alchemy.com/v2/f9VLG4qggmoQThJmgLuSA", // Ethereum Mainnet (Alchemy)
+    // 1: "https://eth-mainnet.g.alchemy.com/v2/", // Ethereum Mainnet (Alchemy)
+    43114: "https://api.avax.network/ext/bc/C/rpc", // Avalanche C-Chain Mainnet
     137: "https://polygon-rpc.com", // Polygon Mainnet
     42161: "https://arb1.arbitrum.io/rpc", // Arbitrum Mainnet
     8453: "https://mainnet.base.org", // Base Mainnet

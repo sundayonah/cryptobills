@@ -16,16 +16,27 @@ export interface Network {
 
 export const SUPPORTED_NETWORKS: Network[] = [
   {
-    id: 1,
-    name: 'Ethereum',
-    chainId: 'eip155:1',
+    id: 43114,
+    name: 'Avalanche',
+    chainId: 'eip155:43114',
     nativeCurrency: {
-      name: 'Ether',
-      symbol: 'ETH',
+      name: 'Avalanche',
+      symbol: 'AVAX',
       decimals: 18,
     },
-    rpcUrl: 'https://eth-mainnet.g.alchemy.com/v2/f9VLG4qggmoQThJmgLuSA',
+    rpcUrl: 'https://api.avax.network/ext/bc/C/rpc',
   },
+  // {
+  //   id: 1,
+  //   name: 'Ethereum',
+  //   chainId: 'eip155:1',
+  //   nativeCurrency: {
+  //     name: 'Ether',
+  //     symbol: 'ETH',
+  //     decimals: 18,
+  //   },
+  //   rpcUrl: 'https://eth-mainnet.g.alchemy.com/v2/',
+  // },
   {
     id: 137,
     name: 'Polygon',
@@ -59,6 +70,7 @@ export const SUPPORTED_NETWORKS: Network[] = [
     },
     rpcUrl: 'https://mainnet.base.org',
   },
+ 
   // Base Sepolia commented out - testnet not needed in production
   // {
   //   id: 84532,

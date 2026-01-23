@@ -7,11 +7,11 @@ const TOKEN_ADDRESSES: Record<
     number,
     { USDC: string; USDT: string }
 > = {
-    1: {
-        // Ethereum Mainnet
-        USDC: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
-        USDT: "0xdAC17F958D2ee523a2206206994597C13D831ec7",
-    },
+    // 1: {
+    //     // Ethereum Mainnet
+    //     USDC: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+    //     USDT: "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+    // },
     137: {
         // Polygon Mainnet
         USDC: "0x3c499c542cef5e3811e1192ce70d8cc03d5c3359",
@@ -26,6 +26,11 @@ const TOKEN_ADDRESSES: Record<
         // Base Mainnet
         USDC: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
         USDT: "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2",
+    },
+    43114: {
+        // Avalanche C-Chain Mainnet
+        USDC: "0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E",
+        USDT: "0x9702230A8Ea53601f5cD2dc00fDBc13d4dF4A8c7",
     },
     // BSC temporarily commented out due to Privy configuration requirements
     // 56: {
