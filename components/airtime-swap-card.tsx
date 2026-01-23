@@ -25,7 +25,8 @@ import { getWalletAddressFromPrivyUser } from "@/lib/privy-utils";
 import { useBalance } from "@/contexts/balance-context";
 import { SUPPORTED_NETWORKS } from "@/lib/networks";
 import { useWallets } from "@privy-io/react-auth";
-import { processWalletPayment, getWalletChainId, waitForTransactionConfirmation } from "@/lib/wallet-payment";
+import { useSmartWallets } from "@privy-io/react-auth/smart-wallets";
+import { getWalletChainId } from "@/lib/wallet-payment";
 import { convertToNGN } from "@/lib/exchange";
 import type { SupportedToken, AirtimeService, AirtimeProvider, UtilityBillCategory, DataBundleService, DataBundlePackage } from "@/types";
 import { motion } from "framer-motion";
@@ -62,6 +63,7 @@ interface ExchangeRate {
 export function AirtimeSwapCard() {
   const { ready, authenticated, user, login, connectWallet } = usePrivy();
   const { wallets } = useWallets();
+  const { client: smartWalletsClient } = useSmartWallets();
   const { toast } = useToast();
   const { getBalance, isLoading: isLoadingBalance, refreshBalances } = useBalance();
   const [exchangeRate, setExchangeRate] = useState<ExchangeRate | null>(null);
@@ -940,40 +942,76 @@ export function AirtimeSwapCard() {
       // STEP 5: ALL VALIDATIONS PASSED - NOW TRANSFER TOKENS
       // ============================================
 
-      // Transfer tokens using Viem + Privy pattern
+      // Transfer tokens using smart wallet (high-level API)
       toast({
         title: "Processing Transfer",
-        description: `Initiating ${data.token} transfer...`,
+        description: `Initiating sponsored ${data.token} transfer...`,
       });
 
-      const transferResult = await processWalletPayment(wallet, {
-        token: data.token,
-        tokenAmount: tokenAmountForTransfer, // Use calculated token amount for airtime
-        recipientAddress: config.payment_recipient_address,
-        chainId: chainId,
-      });
-
-      const txHash = transferResult.transactionHash;
-      const chainIdNum = transferResult.networkChainId;
-
-      // Wait for transaction confirmation before proceeding
-      toast({
-        title: "Transaction Sent",
-        description: `Waiting for blockchain confirmation... ${txHash.slice(0, 10)}...`,
-      });
-
-      const confirmation = await waitForTransactionConfirmation(
-        txHash as `0x${string}`,
-        chainIdNum
-      );
-
-      if (confirmation.status !== 'success') {
-        throw new Error('Transaction failed on blockchain. Please try again.');
+      if (!smartWalletsClient) {
+        throw new Error("Smart wallet not available. Please sign in again.");
       }
 
+      // Ensure we're on the correct chain - critical for gas sponsorship
+      console.log('Target chainId:', chainId, chainId === 8453 ? '(Base)' : chainId === 137 ? '(Polygon)' : '(Unknown)');
+
+      try {
+        // Force chain switch and wait for confirmation
+        await smartWalletsClient.switchChain({ id: chainId });
+        console.log('Chain switched successfully to:', chainId);
+
+        // Small delay to ensure client is updated
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      } catch (error) {
+        console.error('Chain switch failed:', error);
+        throw new Error(`Failed to switch to ${chainId === 8453 ? 'Base' : chainId === 137 ? 'Polygon' : 'target'} network. Please try again.`);
+      }
+
+      // Import required utilities from viem
+      const { encodeFunctionData, erc20Abi, parseUnits } = await import("viem");
+
+      // Get token configuration
+      const { getTokenConfigForChain } = await import("@/lib/token-utils");
+      const tokenConfig = getTokenConfigForChain(data.token, chainId);
+      if (!tokenConfig) {
+        throw new Error(`Token ${data.token} is not supported on chain ${chainId}`);
+      }
+
+      // Create transfer data
+      const transferAmount = parseUnits(tokenAmountForTransfer, tokenConfig.decimals);
+      const transferData = encodeFunctionData({
+        abi: erc20Abi,
+        functionName: "transfer",
+        args: [config.payment_recipient_address as `0x${string}`, transferAmount],
+      });
+
+      toast({
+        title: "Sending Transaction",
+        description: `Creating sponsored transaction on ${chainId === 8453 ? 'Base' : chainId === 137 ? 'Polygon' : 'network'}...`,
+      });
+
+      // Send sponsored transaction via Smart Wallet (Privy handles gas sponsorship automatically)
+      const txHash = await smartWalletsClient.sendTransaction({
+        to: tokenConfig.address as `0x${string}`,
+        data: transferData,
+        value: BigInt(0), // No ETH being sent for ERC20 transfer
+      });
+
+      const chainIdNum = chainId;
+
+      // High-level API handles confirmation automatically
       toast({
         title: "Transaction Confirmed",
-        description: `Payment confirmed at block ${confirmation.blockNumber.toString()}`,
+        description: `Gas-sponsored payment confirmed: ${txHash.slice(0, 10)}...`,
+      });
+
+      // Log transaction details for debugging
+      console.log('🎉 Transaction successful:', {
+        txHash,
+        chainId: chainIdNum,
+        amount: tokenAmountForTransfer,
+        token: data.token,
+        recipient: config.payment_recipient_address,
       });
 
       // ============================================

@@ -10,6 +10,7 @@ import {
 } from "react";
 import { usePrivy } from "@privy-io/react-auth";
 import { useWallets } from "@privy-io/react-auth";
+import { useSmartWallets } from "@privy-io/react-auth/smart-wallets";
 import { ethers } from "ethers";
 import { getWalletAddressFromPrivyUser } from "@/lib/privy-utils";
 import { getTokenAddressForChain } from "@/lib/token-utils";
@@ -83,6 +84,7 @@ async function fetchTokenBalance(
 export function BalanceProvider({ children }: { children: ReactNode }) {
   const { ready, authenticated, user } = usePrivy();
   const { wallets } = useWallets();
+  const { client: smartWalletsClient } = useSmartWallets();
   const [balances, setBalances] = useState<
     Record<SupportedToken, TokenBalance | null>
   >({
@@ -97,7 +99,11 @@ export function BalanceProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    const walletAddress = getWalletAddressFromPrivyUser(user);
+    // Prefer smart wallet address over EOA address
+    const smartWalletAddress = smartWalletsClient?.account?.address;
+    const eoaWalletAddress = getWalletAddressFromPrivyUser(user);
+    const walletAddress = smartWalletAddress || eoaWalletAddress;
+
     if (!walletAddress) {
       setBalances({ USDC: null, USDT: null });
       return;
@@ -286,7 +292,7 @@ export function BalanceProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsLoading(false);
     }
-  }, [ready, authenticated, user, wallets]);
+  }, [ready, authenticated, user, wallets, smartWalletsClient]);
 
   // Only refresh on initial mount when ready and authenticated
   // All other refreshes should be manual (network switch or refresh button)
@@ -300,7 +306,7 @@ export function BalanceProvider({ children }: { children: ReactNode }) {
       return () => clearTimeout(timeoutId);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, authenticated, user?.id, wallets]);
+  }, [ready, authenticated, user?.id, wallets, smartWalletsClient]);
 
   const getBalance = (token: SupportedToken): TokenBalance | null => {
     return balances[token];

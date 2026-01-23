@@ -1,6 +1,8 @@
 "use client";
 
 import { PrivyProvider as PrivyProviderBase } from "@privy-io/react-auth";
+import { SmartWalletsProvider } from "@privy-io/react-auth/smart-wallets";
+import { base, polygon } from "viem/chains";
 
 export function PrivyProvider({ children }: { children: React.ReactNode }) {
   return (
@@ -9,18 +11,29 @@ export function PrivyProvider({ children }: { children: React.ReactNode }) {
       config={{
         loginMethods: ["wallet", "email"],
         embeddedWallets: {
-          createOnLogin: "all-users", // Create embedded wallet for all users (including email)
+          ethereum: {
+            createOnLogin: "all-users" as const,
+          },
         },
+        defaultChain: base,
+        supportedChains: [base, polygon],
         appearance: {
           theme: "light",
           accentColor: "#676FFF",
-          // logo: "", // Remove logo or set to a valid URL
+          landingHeader: "Log in or sign up",
+          logo: "/logos/cryptobilz-logo1.svg",
         },
-        // Privy supports all EVM chains by default, so no need to specify supportedChains
-        // This prevents configuration errors with chain-specific settings
       }}
     >
-      {children}
+      <SmartWalletsProvider
+        config={{
+          paymasterContext: {
+            mode: "SPONSORED",
+          },
+        }}
+      >
+        {children}
+      </SmartWalletsProvider>
     </PrivyProviderBase>
   );
 }

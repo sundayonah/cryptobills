@@ -2,12 +2,13 @@
 
 import { AnimatePresence, motion } from "framer-motion";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
+import { useSmartWallets } from "@privy-io/react-auth/smart-wallets";
 import { useBalance } from "@/contexts/balance-context";
 import { NetworksDropdown } from "@/components/networks-dropdown";
 import { getWalletAddressFromPrivyUser } from "@/lib/privy-utils";
 import { copyToClipboard } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
-import { Wallet, Copy, Check, X, ChevronDown, History } from "lucide-react";
+import { Wallet, Copy, Check, X, ChevronDown, History, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SUPPORTED_NETWORKS, getNetworkByChainId } from "@/lib/networks";
 import React from "react";
@@ -16,15 +17,20 @@ interface MobileDropdownProps {
     isOpen: boolean;
     onClose: () => void;
     onOpenHistory?: () => void;
+    onOpenTransfer?: () => void;
 }
 
-export function MobileDropdown({ isOpen, onClose, onOpenHistory }: MobileDropdownProps) {
+export function MobileDropdown({ isOpen, onClose, onOpenHistory, onOpenTransfer }: MobileDropdownProps) {
     const { authenticated, logout, user } = usePrivy();
     const { wallets } = useWallets();
+    const { client: smartWalletsClient } = useSmartWallets();
     const { toast } = useToast();
     const [copied, setCopied] = React.useState(false);
 
-    const walletAddress = user ? getWalletAddressFromPrivyUser(user) : null;
+    // Show smart wallet address instead of EOA for funding
+    const smartWalletAddress = smartWalletsClient?.account?.address;
+    const eoaWalletAddress = user ? getWalletAddressFromPrivyUser(user) : null;
+    const walletAddress = smartWalletAddress || eoaWalletAddress; // Prefer smart wallet
     const currentNetwork = wallets && wallets.length > 0 && wallets[0].chainId
         ? getNetworkByChainId(wallets[0].chainId)
         : SUPPORTED_NETWORKS[0];
@@ -117,6 +123,24 @@ export function MobileDropdown({ isOpen, onClose, onOpenHistory }: MobileDropdow
                                                     <Copy className="h-4 w-4 text-gray-400 flex-shrink-0" />
                                                 )}
                                             </button>
+                                        </div>
+                                    )}
+
+                                    {/* Transfer Button */}
+                                    {onOpenTransfer && (
+                                        <div className="space-y-2">
+                                            <label className="text-sm font-medium text-gray-700">Transfer Funds</label>
+                                            <Button
+                                                onClick={() => {
+                                                    onOpenTransfer();
+                                                    onClose();
+                                                }}
+                                                variant="outline"
+                                                className="w-full bg-white border-gray-300 text-gray-900 hover:bg-gray-50"
+                                            >
+                                                <ArrowRight className="h-4 w-4 mr-2" />
+                                                Transfer Funds
+                                            </Button>
                                         </div>
                                     )}
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { usePrivy, useWallets } from "@privy-io/react-auth";
+import { useSmartWallets } from "@privy-io/react-auth/smart-wallets";
 import { Button } from "@/components/ui/button";
 import { Wallet, LogOut, Mail, Copy, Check, ChevronDown, History } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -14,14 +15,17 @@ import { SUPPORTED_NETWORKS, getNetworkByChainId } from "@/lib/networks";
 import { getNetworkLogoPath } from "@/lib/network-utils";
 import Image from "next/image";
 import { TransactionHistoryDrawer } from "@/components/transaction-history-drawer";
+import { TransferModal } from "@/components/transfer-modal";
 
 export function Header() {
   const { ready, authenticated, login, logout, user } = usePrivy();
   const { wallets } = useWallets();
+  const { client: smartWalletsClient } = useSmartWallets();
   const { toast } = useToast();
   const [copied, setCopied] = useState(false);
   const [isMobileDropdownOpen, setIsMobileDropdownOpen] = useState(false);
   const [isHistoryDrawerOpen, setIsHistoryDrawerOpen] = useState(false);
+  const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
   const hasSyncedRef = useRef(false);
 
   // Sync user to database when authenticated
@@ -160,7 +164,10 @@ export function Header() {
                     <NetworksDropdown />
                   </div>
                   {(() => {
-                    const walletAddress = user ? getWalletAddressFromPrivyUser(user) : null;
+                    // Show smart wallet address instead of EOA for funding
+                    const smartWalletAddress = smartWalletsClient?.account?.address;
+                    const eoaWalletAddress = user ? getWalletAddressFromPrivyUser(user) : null;
+                    const walletAddress = smartWalletAddress || eoaWalletAddress; // Prefer smart wallet
                     const currentNetwork = wallets[0]?.chainId
                       ? getNetworkByChainId(wallets[0].chainId)
                       : SUPPORTED_NETWORKS[0];
@@ -254,6 +261,16 @@ export function Header() {
                 </>
               )}
 
+              {/* Desktop: Transfer button */}
+              <Button
+                onClick={() => setIsTransferModalOpen(true)}
+                variant="outline"
+                className="hidden sm:flex bg-white border-gray-300 text-gray-900 hover:bg-gray-50 text-sm min-h-9 px-4 py-2"
+                title="Transfer funds"
+              >
+                <Wallet className="h-4 w-4" />
+              </Button>
+
               {/* Desktop: Transaction history button */}
               <Button
                 onClick={() => setIsHistoryDrawerOpen(true)}
@@ -281,6 +298,7 @@ export function Header() {
           isOpen={isMobileDropdownOpen}
           onClose={() => setIsMobileDropdownOpen(false)}
           onOpenHistory={() => setIsHistoryDrawerOpen(true)}
+          onOpenTransfer={() => setIsTransferModalOpen(true)}
         />
       </AnimatePresence>
 
@@ -288,6 +306,12 @@ export function Header() {
       <TransactionHistoryDrawer
         isOpen={isHistoryDrawerOpen}
         onClose={() => setIsHistoryDrawerOpen(false)}
+      />
+
+      {/* Transfer Modal */}
+      <TransferModal
+        isOpen={isTransferModalOpen}
+        onClose={() => setIsTransferModalOpen(false)}
       />
     </header>
   );
