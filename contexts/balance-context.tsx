@@ -228,7 +228,6 @@ export function BalanceProvider({ children }: { children: ReactNode }) {
 
       // Check if chain is supported (mainnets only)
       const supportedChainIds = [
-        1,      // Ethereum Mainnet
         137,    // Polygon Mainnet
         42161,  // Arbitrum Mainnet
         8453,   // Base Mainnet

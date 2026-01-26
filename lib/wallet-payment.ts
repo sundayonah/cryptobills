@@ -268,11 +268,10 @@ export async function transferTokens(
  */
 function getNetworkName(chainId: number): string {
     const networkNames: Record<number, string> = {
-        1: 'Ethereum',
         137: 'Polygon',
         42161: 'Arbitrum',
         8453: 'Base',
-        84532: 'Base Sepolia',
+        43114: 'Avalanche',
         // 56: 'BSC', // temporarily commented out
     };
     return networkNames[chainId] || `Chain ${chainId}`;
