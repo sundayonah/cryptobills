@@ -16,8 +16,8 @@ export function normalizeWalletAddress(address: string | null | undefined): stri
   // Remove whitespace and convert to lowercase
   const normalized = address.trim().toLowerCase();
   
-  // Basic validation: should start with 0x and be 42 characters
-  if (!normalized.startsWith('0x') || normalized.length !== 42) {
+  // Basic validation: 0x prefix + 40 hex characters
+  if (!/^0x[a-f0-9]{40}$/.test(normalized)) {
     return null;
   }
   

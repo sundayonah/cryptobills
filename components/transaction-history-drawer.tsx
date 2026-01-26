@@ -274,7 +274,7 @@ export function TransactionHistoryDrawer({ isOpen, onClose }: TransactionHistory
                                                     <p className="text-sm font-semibold text-gray-700 whitespace-nowrap">
                                                         {(() => {
                                                             const tokenAmount = parseFloat(tx.tokenAmount);
-                                                            return isFinite(tokenAmount) ? tokenAmount.toFixed(8) : "0.0000";
+                                                            return isFinite(tokenAmount) ? tokenAmount.toFixed(8) : "0.00000000";
                                                         })()} {tx.token}
                                                     </p>
                                                 </div>

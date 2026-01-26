@@ -82,13 +82,13 @@ export async function POST(request: NextRequest) {
 
         // Get or create user
         let user = await prisma.user.findUnique({
-            where: { walletAddress: validated.walletAddress },
+            where: { walletAddress: normalizedWalletAddress },
         });
 
         if (!user) {
             user = await prisma.user.create({
                 data: {
-                    walletAddress: validated.walletAddress,
+                    walletAddress: normalizedWalletAddress,
                     privyUserId: validated.privyUserId,
                 },
             });
