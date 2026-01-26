@@ -269,10 +269,12 @@ export function AirtimeSwapCard() {
       }
     };
     fetchProviders();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // fetchBundles and fetchPackages are defined below with useCallback and are stable
   }, [selectedCategory, setValue, toast]);
 
   // Fetch bundles when data bundle provider changes
-  const fetchBundles = async (service: DataBundleService) => {
+  const fetchBundles = useCallback(async (service: DataBundleService) => {
     if (selectedCategory !== "data_bundle") {
       setBundles([]);
       setSelectedBundle("");
@@ -332,10 +334,10 @@ export function AirtimeSwapCard() {
     } finally {
       setLoadingBundles(false);
     }
-  };
+  }, [selectedCategory, setValue, toast, exchangeRate, selectedToken]);
 
   // Fetch cable TV packages
-  const fetchPackages = async (service: string) => {
+  const fetchPackages = useCallback(async (service: string) => {
     if (selectedCategory !== "cable_tv") {
       setCablePackages([]);
       setSelectedPackage("");
@@ -386,7 +388,7 @@ export function AirtimeSwapCard() {
     } finally {
       setLoadingCablePackages(false);
     }
-  };
+  }, [selectedCategory, setValue, toast, exchangeRate, selectedToken]);
 
   // Validate smart card for cable TV
   const validateSmartCard = useCallback(async (service: string, smartCardNumber: string) => {
@@ -525,7 +527,7 @@ export function AirtimeSwapCard() {
     if (selectedCategory !== "cable_tv") {
       setSmartCardValidation(null);
     }
-  }, [selectedService, selectedCategory, setValue]);
+  }, [selectedService, selectedCategory, setValue, fetchBundles]);
 
   // Watch for service changes in cable TV category
   useEffect(() => {
@@ -535,7 +537,7 @@ export function AirtimeSwapCard() {
       setCablePackages([]);
       setSelectedPackage("");
     }
-  }, [selectedService, selectedCategory]);
+  }, [selectedService, selectedCategory, fetchPackages]);
 
   // Auto-validate smart card number for cable TV when smart card number and service are filled
   useEffect(() => {
@@ -1022,8 +1024,7 @@ export function AirtimeSwapCard() {
       });
 
       // Use Privy's sendTransaction with TEE gas sponsorship
-      // This enables gas sponsorship using your $10 credit from Privy dashboard
-      // TEE execution is required for gas sponsorship to work
+
       const txResult = await sendTransaction(
         {
           to: tokenAddress,
@@ -1031,8 +1032,8 @@ export function AirtimeSwapCard() {
           value: '0x0', // ERC20 transfers don't send ETH
         },
         {
-          sponsor: true, // Enable Privy native gas sponsorship via TEE
-        }
+          sponsor: true,
+        } as any 
       );
 
       // Extract transaction hash (Privy returns { hash: string } or string)
