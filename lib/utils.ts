@@ -6,6 +6,25 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 /**
+ * Normalize wallet address to lowercase for consistent database storage and queries
+ * @param address - The wallet address to normalize
+ * @returns Normalized wallet address (lowercase) or null if invalid
+ */
+export function normalizeWalletAddress(address: string | null | undefined): string | null {
+  if (!address) return null;
+  
+  // Remove whitespace and convert to lowercase
+  const normalized = address.trim().toLowerCase();
+  
+  // Basic validation: should start with 0x and be 42 characters
+  if (!normalized.startsWith('0x') || normalized.length !== 42) {
+    return null;
+  }
+  
+  return normalized;
+}
+
+/**
  * Copy text to clipboard
  * @param text - The text to copy
  * @returns Promise that resolves when text is copied

@@ -6,6 +6,7 @@ import config from '@/lib/config';
 import { getNetworkById } from '@/lib/networks';
 import { processPayment } from '@/lib/payment-processors';
 import { getCryptobilzClient } from '@/lib/paybeta';
+import { normalizeWalletAddress } from '@/lib/utils';
 import type { SupportedToken, UtilityBillCategory } from '@/types';
 
 const purchaseSchema = z.object({
@@ -30,6 +31,15 @@ export async function POST(request: NextRequest) {
     try {
         const body = await request.json();
         const validated = purchaseSchema.parse(body);
+
+        // Normalize wallet address for consistent database storage
+        const normalizedWalletAddress = normalizeWalletAddress(validated.walletAddress);
+        if (!normalizedWalletAddress) {
+            return NextResponse.json(
+                { error: 'Invalid wallet address format' },
+                { status: 400 }
+            );
+        }
 
         // Verify payment transaction
         if (!validated.paymentTxHash) {
@@ -144,7 +154,7 @@ export async function POST(request: NextRequest) {
         transaction = await prisma.transaction.create({
             data: {
                 userId: user.id,
-                walletAddress: validated.walletAddress,
+                walletAddress: normalizedWalletAddress,
                 token: validated.token,
                 tokenAmount: validated.tokenAmount,
                 ngnAmount,

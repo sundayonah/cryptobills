@@ -1,44 +1,17 @@
 /**
  * Professional Wallet Payment Handler
- * Handles token transfers from user wallet to payment recipient address
+ * Utility functions for wallet operations and transaction confirmation
  * 
  * Uses Viem + Privy pattern (inspired by Noblocks/Paycrest)
  * Compatible with Privy v1.50 (useWallets hook)
  */
 
-import { encodeFunctionData, erc20Abi, parseUnits, type Address, createPublicClient, http, type Hash } from 'viem';
-import { getTokenConfigForChain } from './token-utils';
+import { encodeFunctionData, erc20Abi, type Address, createPublicClient, http, type Hash } from 'viem';
 import { SUPPORTED_NETWORKS } from './networks';
-import config from './config';
-import type { SupportedToken } from '@/types';
 
 // ============================================
 // TYPES
 // ============================================
-
-/**
- * Token transfer result
- */
-export interface TokenTransferResult {
-    transactionHash: string;
-    from: string;
-    to: string;
-    amount: string; // Token amount in human-readable format (e.g., "1.0")
-    token: SupportedToken;
-    networkChainId: number;
-    networkName: string;
-    status: 'success' | 'failed';
-}
-
-/**
- * Token transfer parameters
- */
-export interface TokenTransferParams {
-    token: SupportedToken;
-    tokenAmount: string; // Amount in token (e.g., "1.0")
-    recipientAddress?: string; // Optional, defaults to PAYMENT_RECIPIENT_ADDRESS
-    chainId: number; // Network chain ID
-}
 
 /**
  * Privy wallet interface (from useWallets hook)
@@ -59,42 +32,6 @@ export interface EthereumProvider {
     request: (args: { method: string; params?: any[] }) => Promise<any>;
     on?: (event: string, handler: (...args: any[]) => void) => void;
     removeListener?: (event: string, handler: (...args: any[]) => void) => void;
-}
-
-// ============================================
-// VALIDATION
-// ============================================
-
-/**
- * Validate payment recipient address
- */
-function validateRecipientAddress(address?: string): Address {
-    const recipient = address || config.payment_recipient_address;
-
-    if (!recipient) {
-        throw new Error(
-            'Payment recipient address is not configured. ' +
-            'Please set NEXT_PUBLIC_PAYMENT_RECIPIENT_ADDRESS in environment variables.'
-        );
-    }
-
-    // Basic address validation (42 characters, starts with 0x)
-    if (!recipient.startsWith('0x') || recipient.length !== 42) {
-        throw new Error(`Invalid payment recipient address: ${recipient}`);
-    }
-
-    return recipient as Address;
-}
-
-/**
- * Validate token amount
- */
-function validateTokenAmount(amount: string): number {
-    const num = parseFloat(amount);
-    if (isNaN(num) || num <= 0) {
-        throw new Error('Invalid token amount. Amount must be greater than 0.');
-    }
-    return num;
 }
 
 // ============================================
@@ -135,146 +72,6 @@ export async function checkTokenBalance(
     } catch (error: any) {
         throw new Error(`Failed to check token balance: ${error.message}`);
     }
-}
-
-// ============================================
-// WALLET TRANSFER
-// ============================================
-
-/**
- * Transfer tokens from user wallet to payment recipient address
- * 
- * Uses Viem for encoding and Privy wallet for signing
- * 
- * @param wallet - Privy wallet instance from useWallets hook
- * @param params - Transfer parameters
- * @returns Transfer result with transaction hash and details
- */
-export async function transferTokens(
-    wallet: PrivyWallet,
-    params: TokenTransferParams
-): Promise<TokenTransferResult> {
-    const { token, tokenAmount, recipientAddress, chainId } = params;
-
-    try {
-        // Validate inputs
-        const amount = validateTokenAmount(tokenAmount);
-        const recipient = validateRecipientAddress(recipientAddress);
-
-        // Get token configuration for the chain
-        const tokenConfig = getTokenConfigForChain(token, chainId);
-        if (!tokenConfig) {
-            throw new Error(`Token ${token} is not supported on chain ${chainId}`);
-        }
-
-        const tokenAddress = tokenConfig.address as Address;
-        const decimals = tokenConfig.decimals;
-
-        // Get wallet address
-        const fromAddress = wallet.address as Address;
-
-        // Get Ethereum provider from Privy wallet (EIP-1193 compatible)
-        const ethereumProvider = await wallet.getEthereumProvider();
-        if (!ethereumProvider) {
-            throw new Error('Failed to get Ethereum provider from wallet');
-        }
-
-        // Check balance before transfer
-        const balance = await checkTokenBalance(
-            ethereumProvider,
-            tokenAddress,
-            fromAddress,
-            decimals
-        );
-
-        const balanceAmount = parseFloat(balance);
-        if (balanceAmount < amount) {
-            throw new Error(
-                `Insufficient balance. You have ${balance} ${token}, but need ${tokenAmount} ${token}.`
-            );
-        }
-
-        // Switch to correct chain if needed
-        const walletChainId = typeof wallet.chainId === 'string'
-            ? parseInt(wallet.chainId.split(':')[1] || wallet.chainId)
-            : wallet.chainId;
-
-        if (walletChainId !== chainId && wallet.switchChain) {
-            try {
-                await wallet.switchChain(chainId);
-            } catch (error: any) {
-                // If switch fails, continue - the user might already be on the correct chain
-                console.warn(`Failed to switch chain to ${chainId}:`, error.message);
-            }
-        }
-
-        // Encode ERC20 transfer function call using Viem
-        const transferData = encodeFunctionData({
-            abi: erc20Abi,
-            functionName: 'transfer',
-            args: [recipient, parseUnits(tokenAmount, decimals)],
-        });
-
-        // Send transaction using EIP-1193 provider (works with Privy and all EIP-1193 wallets)
-        const txHash = await ethereumProvider.request({
-            method: 'eth_sendTransaction',
-            params: [
-                {
-                    from: fromAddress,
-                    to: tokenAddress,
-                    data: transferData,
-                    value: '0x0', // ERC20 transfers don't send ETH
-                },
-            ],
-        });
-
-        // Get network name for display
-        const networkName = getNetworkName(chainId);
-
-        // Wait for transaction confirmation
-        // Note: In production, you might want to poll for confirmation
-        // For now, we'll return the hash immediately and let the caller handle confirmation
-
-        return {
-            transactionHash: txHash as string,
-            from: fromAddress,
-            to: recipient,
-            amount: tokenAmount,
-            token,
-            networkChainId: chainId,
-            networkName,
-            status: 'success',
-        };
-    } catch (error: any) {
-        // Enhanced error handling
-        if (error.code === 'ACTION_REJECTED' || error.code === 4001) {
-            throw new Error('Transaction rejected by user');
-        }
-
-        if (error.code === 'INSUFFICIENT_FUNDS') {
-            throw new Error('Insufficient funds for gas fee');
-        }
-
-        if (error.message) {
-            throw error;
-        }
-
-        throw new Error(`Token transfer failed: ${error.message || 'Unknown error'}`);
-    }
-}
-
-/**
- * Get network name from chain ID
- */
-function getNetworkName(chainId: number): string {
-    const networkNames: Record<number, string> = {
-        137: 'Polygon',
-        42161: 'Arbitrum',
-        8453: 'Base',
-        43114: 'Avalanche',
-        // 56: 'BSC', // temporarily commented out
-    };
-    return networkNames[chainId] || `Chain ${chainId}`;
 }
 
 /**
@@ -339,34 +136,8 @@ export async function waitForTransactionConfirmation(
 }
 
 // ============================================
-// CONVENIENCE FUNCTIONS
-// ============================================
-
-/**
- * Complete wallet payment flow
- * Handles the entire flow from validation to transfer
- * 
- * @param wallet - Privy wallet instance from useWallets hook
- * @param params - Transfer parameters
- * @returns Transfer result
- */
-export async function processWalletPayment(
-    wallet: PrivyWallet,
-    params: TokenTransferParams
-): Promise<TokenTransferResult> {
-    return await transferTokens(wallet, params);
-}
-
-// ============================================
 // UTILITY FUNCTIONS
 // ============================================
-
-/**
- * Get wallet address from Privy wallet
- */
-export function getWalletAddress(wallet: PrivyWallet): Address {
-    return wallet.address as Address;
-}
 
 /**
  * Get chain ID from Privy wallet
@@ -378,12 +149,4 @@ export function getWalletChainId(wallet: PrivyWallet): number {
         return parseInt(parts[parts.length - 1]);
     }
     return wallet.chainId;
-}
-
-/**
- * Check if wallet is on the correct chain
- */
-export function isWalletOnChain(wallet: PrivyWallet, chainId: number): boolean {
-    const walletChainId = getWalletChainId(wallet);
-    return walletChainId === chainId;
 }
