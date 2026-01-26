@@ -11,7 +11,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { SUPPORTED_NETWORKS } from "@/lib/networks";
 import { getTokenConfigForChain } from "@/lib/token-utils";
-import { Loader2, ArrowRight } from "lucide-react";
+import { getWalletAddressFromPrivyUser } from "@/lib/privy-utils";
+import type { SupportedToken } from "@/types";
+import { Loader2, ArrowRight, Copy } from "lucide-react";
 import { encodeFunctionData, erc20Abi, parseUnits } from "viem";
 
 interface TransferModalProps {
@@ -27,17 +29,23 @@ export function TransferModal({ isOpen, onClose }: TransferModalProps) {
 
   // Get EOA wallet for direct transfers
   const eoaWallet = wallets.find(wallet => wallet.walletClientType === "privy" || wallet.connectorType === "injected");
+  
+  // Get EOA address for auto-fill
+  const eoaAddress = getWalletAddressFromPrivyUser(user) || eoaWallet?.address || "";
+  
+  // Get smart wallet address
+  const smartWalletAddress = smartWalletsClient?.account?.address || "";
 
   const [selectedNetwork, setSelectedNetwork] = useState<string>("");
   const [selectedToken, setSelectedToken] = useState<string>("");
   const [amount, setAmount] = useState<string>("");
   const [recipientAddress, setRecipientAddress] = useState<string>("");
   const [isTransferring, setIsTransferring] = useState(false);
-  const [transferFrom, setTransferFrom] = useState<"eoa" | "smart">("smart");
+  const [transferFrom, setTransferFrom] = useState<"eoa" | "smart">("eoa");
 
   // Get available tokens for selected network
   const availableTokens = selectedNetwork
-    ? ["USDC", "USDT"].filter(token => {
+    ? (["USDC", "USDT"] as SupportedToken[]).filter(token => {
         try {
           return getTokenConfigForChain(token, parseInt(selectedNetwork));
         } catch {
@@ -57,13 +65,25 @@ export function TransferModal({ isOpen, onClose }: TransferModalProps) {
     }
 
     // Check if we have the appropriate wallet
-    if (transferFrom === "smart" && !smartWalletsClient) {
-      toast({
-        title: "Smart wallet not available",
-        description: "Please connect and initialize your smart wallet first",
-        variant: "destructive",
-      });
-      return;
+    if (transferFrom === "smart") {
+      if (!smartWalletsClient?.account?.address) {
+        toast({
+          title: "Smart wallet not available",
+          description: "Smart wallet is not initialized. Please ensure smart wallets are enabled in the dashboard and try signing in again.",
+          variant: "destructive",
+        });
+        return;
+      }
+      
+      // Validate recipient address
+      if (!recipientAddress || !recipientAddress.startsWith("0x") || recipientAddress.length !== 42) {
+        toast({
+          title: "Invalid recipient address",
+          description: "Please enter a valid Ethereum address (0x...)",
+          variant: "destructive",
+        });
+        return;
+      }
     }
 
     if (transferFrom === "eoa" && !eoaWallet) {
@@ -78,7 +98,7 @@ export function TransferModal({ isOpen, onClose }: TransferModalProps) {
     setIsTransferring(true);
     try {
       const chainId = parseInt(selectedNetwork);
-      const tokenConfig = getTokenConfigForChain(selectedToken, chainId);
+      const tokenConfig = getTokenConfigForChain(selectedToken as SupportedToken, chainId);
 
       if (!tokenConfig) {
         throw new Error(`Token ${selectedToken} not supported on this network`);
@@ -86,10 +106,23 @@ export function TransferModal({ isOpen, onClose }: TransferModalProps) {
 
       // Switch to the selected network
       if (transferFrom === "smart") {
-        await smartWalletsClient.switchChain({ id: chainId });
+        if (smartWalletsClient) {
+          await smartWalletsClient.switchChain({ id: chainId });
+          // Small delay to ensure chain switch propagates
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
       } else {
-        // For EOA, we'll assume they're already on the right network
-        // In a production app, you'd want to prompt network switching
+        // For EOA, switch chain if needed
+        if (eoaWallet) {
+          const walletChainId = eoaWallet.chainId
+            ? parseInt(eoaWallet.chainId.split(":")[1] || eoaWallet.chainId)
+            : null;
+
+          if (walletChainId !== chainId) {
+            await eoaWallet.switchChain(chainId);
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+        }
       }
 
       // Encode transfer data
@@ -104,11 +137,25 @@ export function TransferModal({ isOpen, onClose }: TransferModalProps) {
 
       if (transferFrom === "smart") {
         // Execute transfer from smart wallet
-        txHash = await smartWalletsClient.sendTransaction({
+        if (!smartWalletsClient) {
+          throw new Error("Smart wallet client is not available");
+        }
+        
+        toast({
+          title: "Sending transaction",
+          description: `Transferring ${amount} ${selectedToken} from smart wallet...`,
+        });
+        
+        const txHashResponse = await smartWalletsClient.sendTransaction({
           to: tokenConfig.address as `0x${string}`,
           data: transferData,
           value: BigInt(0),
         });
+        
+        // Handle different return types
+        txHash = typeof txHashResponse === 'string' 
+          ? txHashResponse 
+          : (txHashResponse as { hash?: string })?.hash || String(txHashResponse);
       } else {
         // Execute transfer from EOA using wallet provider
         if (!eoaWallet?.getEthereumProvider) {
@@ -157,7 +204,7 @@ export function TransferModal({ isOpen, onClose }: TransferModalProps) {
       setSelectedToken("");
       setAmount("");
       setRecipientAddress("");
-      setTransferFrom("smart");
+      setTransferFrom("eoa");
     }
   }, [isOpen]);
 
@@ -242,13 +289,48 @@ export function TransferModal({ isOpen, onClose }: TransferModalProps) {
           {/* Recipient Address */}
           <div className="space-y-2">
             <Label htmlFor="recipient">Recipient Address</Label>
-            <Input
-              id="recipient"
-              placeholder="0x..."
-              value={recipientAddress}
-              onChange={(e) => setRecipientAddress(e.target.value)}
-            />
+            <div className="flex gap-2">
+              <Input
+                id="recipient"
+                placeholder="0x..."
+                value={recipientAddress}
+                onChange={(e) => setRecipientAddress(e.target.value)}
+                className="flex-1"
+              />
+              {transferFrom === "smart" && eoaAddress && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setRecipientAddress(eoaAddress)}
+                  className="whitespace-nowrap"
+                  title="Use my EOA address"
+                >
+                  <Copy className="h-4 w-4 mr-1" />
+                  My EOA
+                </Button>
+              )}
+            </div>
+            {transferFrom === "smart" && eoaAddress && (
+              <p className="text-xs text-gray-500">
+                Transfer to your EOA: {eoaAddress.slice(0, 6)}...{eoaAddress.slice(-4)}
+              </p>
+            )}
           </div>
+          
+          {/* Smart Wallet Info */}
+          {transferFrom === "smart" && (
+            <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+              <p className="text-xs text-blue-800">
+                <strong>From:</strong> {smartWalletAddress ? `${smartWalletAddress.slice(0, 6)}...${smartWalletAddress.slice(-4)}` : "Smart wallet (not initialized)"}
+              </p>
+              {smartWalletAddress && (
+                <p className="text-xs text-blue-600 mt-1">
+                  This transfer will use gas sponsorship if configured.
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Transfer Button */}
           <Button

@@ -164,10 +164,10 @@ export function Header() {
                     <NetworksDropdown />
                   </div>
                   {(() => {
-                    // Show smart wallet address instead of EOA for funding
+                    // Show EOA address (prefer EOA over smart wallet)
                     const smartWalletAddress = smartWalletsClient?.account?.address;
                     const eoaWalletAddress = user ? getWalletAddressFromPrivyUser(user) : null;
-                    const walletAddress = smartWalletAddress || eoaWalletAddress; // Prefer smart wallet
+                    const walletAddress = eoaWalletAddress || smartWalletAddress; // Prefer EOA
                     const currentNetwork = wallets[0]?.chainId
                       ? getNetworkByChainId(wallets[0].chainId)
                       : SUPPORTED_NETWORKS[0];
