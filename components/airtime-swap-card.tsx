@@ -269,8 +269,9 @@ export function AirtimeSwapCard() {
       }
     };
     fetchProviders();
+    // fetchBundles and fetchPackages are defined below with useCallback and are stable references
+    // They are intentionally excluded to avoid circular dependencies
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    // fetchBundles and fetchPackages are defined below with useCallback and are stable
   }, [selectedCategory, setValue, toast]);
 
   // Fetch bundles when data bundle provider changes
@@ -1036,8 +1037,14 @@ export function AirtimeSwapCard() {
         } as any 
       );
 
-      // Extract transaction hash (Privy returns { hash: string } or string)
-      const txHash = typeof txResult === 'string' ? txResult : txResult.hash;
+      // Extract transaction hash (Privy returns TransactionReceipt with transactionHash property)
+      const txHash = typeof txResult === 'string' 
+        ? txResult 
+        : (txResult as any).hash || (txResult as any).transactionHash || '';
+      
+      if (!txHash) {
+        throw new Error('Failed to get transaction hash from sendTransaction result');
+      }
       const chainIdNum = chainId;
 
       // Wait for transaction confirmation before proceeding
