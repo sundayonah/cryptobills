@@ -3,10 +3,10 @@
 import { useState, useEffect, useCallback } from "react";
 import { usePrivy } from "@privy-io/react-auth";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, LogOut, Clock, CheckCircle, XCircle, Loader2, Copy, Check, RefreshCw } from "lucide-react";
+import { X, LogOut, Clock, CheckCircle, XCircle, Loader2, Copy, Check, RefreshCw, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import { copyToClipboard } from "@/lib/utils";
+import { copyToClipboard, getExplorerLink, isSupportedNetwork } from "@/lib/utils";
 import { getWalletAddressFromPrivyUser } from "@/lib/privy-utils";
 
 interface Transaction {
@@ -29,6 +29,7 @@ interface Transaction {
     completedAt?: string;
     errorMessage?: string;
     paymentTxHash?: string;
+    networkName?: string;
 }
 
 interface TransactionHistoryDrawerProps {
@@ -273,7 +274,7 @@ export function TransactionHistoryDrawer({ isOpen, onClose }: TransactionHistory
                                                     <p className="text-sm font-semibold text-gray-700 whitespace-nowrap">
                                                         {(() => {
                                                             const tokenAmount = parseFloat(tx.tokenAmount);
-                                                            return isFinite(tokenAmount) ? tokenAmount.toFixed(4) : "0.0000";
+                                                            return isFinite(tokenAmount) ? tokenAmount.toFixed(8) : "0.00000000";
                                                         })()} {tx.token}
                                                     </p>
                                                 </div>
@@ -323,6 +324,23 @@ export function TransactionHistoryDrawer({ isOpen, onClose }: TransactionHistory
                                                         )}
                                                     </button>
                                                 </div>
+                                                {tx.paymentTxHash && isSupportedNetwork(tx.networkName) && getExplorerLink(tx.networkName, tx.paymentTxHash) && (
+                                                    <div className="flex items-center justify-between text-sm">
+                                                        <span className="text-gray-600">View in explorer:</span>
+                                                        <a
+                                                            href={getExplorerLink(tx.networkName, tx.paymentTxHash)!}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            className="flex items-center gap-1 text-blue-600 hover:text-blue-700 font-mono text-xs hover:underline"
+                                                            title="View on blockchain explorer"
+                                                        >
+                                                            <span className="truncate max-w-[120px] sm:max-w-none">
+                                                                {tx.paymentTxHash.slice(0, 6)}...{tx.paymentTxHash.slice(-4)}
+                                                            </span>
+                                                            <ExternalLink className="h-3 w-3 flex-shrink-0" />
+                                                        </a>
+                                                    </div>
+                                                )}
                                                 {tx.errorMessage && (
                                                     <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-xs text-red-700">
                                                         {tx.errorMessage}
