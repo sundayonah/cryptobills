@@ -11,20 +11,19 @@ export function PrivyProvider({ children }: { children: React.ReactNode }) {
         // Login methods
         loginMethods: ["wallet", "email"],
 
-        // Embedded wallet configuration for TEE environment
-        // TEE (Trusted Execution Environment) is enabled in production dashboard
+        // Embedded wallet configuration
+        // Recovery and TEE settings are configured in Privy Dashboard (Wallets → Advanced)
+        // not in client-side code (those options are deprecated)
         embeddedWallets: {
-          createOnLogin: "all-users",
-          // CRITICAL: These settings fix "Recovery method not supported" error in production
-          requireUserPasswordOnCreate: false, // Use automatic recovery instead of password
-          noPromptOnSignature: false, // Allow transaction prompts
+          createOnLogin: "all-users", // Create embedded wallet for all users
+          // Note: requireUserPasswordOnCreate and noPromptOnSignature are DEPRECATED
+          // Configure recovery method and wallet UI settings in Privy Dashboard instead
         },
 
         // Appearance
         appearance: {
           theme: "light",
           accentColor: "#676FFF",
-          // logo: "",
         },
 
         // Network configuration - Support all networks
