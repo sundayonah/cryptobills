@@ -73,10 +73,12 @@ export async function POST(
             status = 'processing';
             errorMessage = paybetaResponse.message || 'Transaction is pending';
         } else if (paybetaResponse.code === '02') {
-            status = 'failed';
+            // Explicit failure from PayBeta – mark for refund
+            status = 'refund_pending';
             errorMessage = paybetaResponse.message || 'Transaction failed';
         } else if (paybetaResponse.code === '99') {
-            status = 'failed';
+            // Not found / invalid reference – also treat as refund case
+            status = 'refund_pending';
             errorMessage = paybetaResponse.message || 'Transaction not found or invalid reference';
         } else {
             // Unknown code - keep current status but update error message
@@ -90,6 +92,13 @@ export async function POST(
             paybetaTransactionId: paybetaData?.transactionId || transaction.paybetaTransactionId,
             errorMessage,
         };
+
+        // If we transitioned into refund_pending, set refund metadata
+        if (status === 'refund_pending') {
+            updateData.refundStatus = updateData.refundStatus ?? 'pending';
+            updateData.refundReason = errorMessage || 'PayBeta transaction failed';
+            updateData.refundRequestedAt = transaction.refundRequestedAt ?? new Date();
+        }
 
         // Update transaction-specific fields if available
         if (paybetaData) {
