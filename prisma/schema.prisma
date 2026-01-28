@@ -82,8 +82,15 @@ model Transaction {
   paybetaTransactionId String?
 
   // Status tracking
-  status       String // 'pending_payment' | 'payment_received' | 'converting' | 'processing' | 'completed' | 'failed'
+  status       String // 'pending_payment' | 'payment_received' | 'processing' | 'completed' | 'failed' | 'refund_pending' | 'refunded'
   errorMessage String?
+
+  // Refund tracking
+  refundStatus      String?  // 'pending' | 'initiated' | 'confirmed' | 'failed'
+  refundTxHash      String?
+  refundReason      String?
+  refundRequestedAt DateTime?
+  refundCompletedAt DateTime?
 
   // Timestamps
   createdAt         DateTime  @default(now())

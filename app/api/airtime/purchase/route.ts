@@ -233,8 +233,11 @@ export async function POST(request: NextRequest) {
       await prisma.transaction.update({
         where: { id: transaction.id },
         data: {
-          status: 'failed',
+          status: 'refund_pending',
           errorMessage: processError.message || 'Payment processing failed',
+          refundStatus: 'pending',
+          refundReason: processError.message || 'Payment processing failed',
+          refundRequestedAt: new Date(),
         },
       });
       return NextResponse.json(
@@ -293,8 +296,11 @@ export async function POST(request: NextRequest) {
       await prisma.transaction.update({
         where: { id: transaction.id },
         data: {
-          status: 'failed',
+          status: 'refund_pending',
           errorMessage: paymentResponse.message || 'PayBeta purchase failed',
+          refundStatus: 'pending',
+          refundReason: paymentResponse.message || 'PayBeta purchase failed',
+          refundRequestedAt: new Date(),
         },
       });
 
@@ -314,8 +320,11 @@ export async function POST(request: NextRequest) {
         await prisma.transaction.update({
           where: { id: transaction.id },
           data: {
-            status: 'failed',
+            status: 'refund_pending',
             errorMessage: error.message || 'PayBeta API error: ' + (error.response?.data?.message || 'Unknown error'),
+            refundStatus: 'pending',
+            refundReason: error.response?.data?.message || error.message || 'PayBeta API error',
+            refundRequestedAt: new Date(),
           },
         });
       } catch (updateError) {

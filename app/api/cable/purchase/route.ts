@@ -257,12 +257,15 @@ export async function POST(request: NextRequest) {
                 },
             });
         } else {
-            // Transaction failed
+            // Transaction failed – mark for refund
             await prisma.transaction.update({
                 where: { id: transaction.id },
                 data: {
-                    status: 'failed',
+                    status: 'refund_pending',
                     errorMessage: paymentResponse.message || 'PayBeta purchase failed',
+                    refundStatus: 'pending',
+                    refundReason: paymentResponse.message || 'PayBeta purchase failed',
+                    refundRequestedAt: new Date(),
                 },
             });
 

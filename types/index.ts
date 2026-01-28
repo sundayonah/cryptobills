@@ -231,7 +231,9 @@ export type TransactionStatus =
     | 'converting'
     | 'processing'
     | 'completed'
-    | 'failed';
+    | 'failed'
+    | 'refund_pending'
+    | 'refunded';
 
 export interface AirtimeTransaction {
     id: string;
