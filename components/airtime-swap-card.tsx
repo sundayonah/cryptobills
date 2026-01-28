@@ -1252,7 +1252,7 @@ export function AirtimeSwapCard() {
             <SelectTrigger className="w-full h-12 bg-gray-50 border-gray-300 text-gray-900 rounded-2xl">
               <SelectValue />
             </SelectTrigger>
-            <SelectContent className="bg-white border-gray-200">
+            <SelectContent className="bg-white border-gray-200 rounded-2xl">
               {UTILITY_CATEGORIES.map((category) => (
                 <SelectItem
                   key={category.id}
@@ -1277,9 +1277,9 @@ export function AirtimeSwapCard() {
           <div className="space-y-2">
             <label className="text-sm text-gray-600">Provider</label>
             {loadingProviders ? (
-              <div className="w-full h-12 bg-purple-50 border border-purple-200 rounded-2xl flex items-center justify-center">
-                <LoadingSpinner size="sm" className="text-purple-600" />
-                <span className="ml-2 text-sm text-purple-600">Loading providers...</span>
+              <div className="w-full h-12 bg-gray-50 border border-gray-300 rounded-2xl flex items-center justify-center">
+                <LoadingSpinner size="sm" className="text-gray-600" />
+                <span className="ml-2 text-sm text-gray-600">Loading providers...</span>
               </div>
             ) : (
               <Select
@@ -1296,7 +1296,7 @@ export function AirtimeSwapCard() {
                 }}
                 disabled={providers.length === 0 || !UTILITY_CATEGORIES.find(cat => cat.id === selectedCategory)?.enabled}
               >
-                <SelectTrigger className="w-full h-12 bg-purple-600 border-purple-500 text-white rounded-2xl hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                <SelectTrigger className="w-full h-12 bg-gray-50 border-gray-300 text-gray-900 rounded-2xl disabled:opacity-50 disabled:cursor-not-allowed">
                   <SelectValue placeholder={
                     !UTILITY_CATEGORIES.find(cat => cat.id === selectedCategory)?.enabled
                       ? "Service not available"
@@ -1330,7 +1330,7 @@ export function AirtimeSwapCard() {
                     })()}
                   </SelectValue>
                 </SelectTrigger>
-                <SelectContent className="bg-white border-gray-200">
+                <SelectContent className="bg-white border-gray-200 rounded-2xl">
                   {providers.map((provider) => (
                     <SelectItem
                       key={provider.service}
@@ -1395,7 +1395,7 @@ export function AirtimeSwapCard() {
                   <SelectValue placeholder="Select data bundle">
                     {selectedBundle && bundles.find(b => b.code === selectedBundle) && (
                       <div className="flex items-center justify-between w-full pr-2 gap-2 min-w-0">
-                        <span className="font-medium text-base truncate">
+                        <span className="truncate">
                           {bundles.find(b => b.code === selectedBundle)?.description}
                         </span>
                         <span className="text-sm font-semibold text-gray-700 whitespace-nowrap flex-shrink-0">
@@ -1406,7 +1406,7 @@ export function AirtimeSwapCard() {
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent
-                  className="bg-white border-gray-200 max-h-[300px] w-[var(--radix-select-trigger-width)]"
+                  className="bg-white border-gray-200 rounded-2xl max-h-[300px] w-[var(--radix-select-trigger-width)]"
                   position="popper"
                   sideOffset={4}
                 >
@@ -1478,7 +1478,7 @@ export function AirtimeSwapCard() {
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent
-                  className="bg-white border-gray-200 max-h-[300px] w-[var(--radix-select-trigger-width)]"
+                  className="bg-white border-gray-200 rounded-2xl max-h-[300px] w-[var(--radix-select-trigger-width)]"
                   position="popper"
                   sideOffset={4}
                 >
@@ -1629,7 +1629,7 @@ export function AirtimeSwapCard() {
                   </div>
                 </SelectValue>
               </SelectTrigger>
-              <SelectContent className="bg-white border-gray-200">
+              <SelectContent className="bg-white border-gray-200 rounded-2xl">
                 <SelectItem value="USDC" className="text-gray-900">
                   <div className="flex items-center justify-between w-full">
                     <div className="flex items-center gap-2">
@@ -1822,7 +1822,7 @@ export function AirtimeSwapCard() {
                       <span className="capitalize">{meterType}</span>
                     </SelectValue>
                   </SelectTrigger>
-                  <SelectContent className="bg-white border-gray-200">
+                  <SelectContent className="bg-white border-gray-200 rounded-2xl">
                     <SelectItem value="prepaid" className="text-gray-900">Prepaid</SelectItem>
                     <SelectItem value="postpaid" className="text-gray-900">Postpaid</SelectItem>
                   </SelectContent>
