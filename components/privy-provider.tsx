@@ -9,7 +9,9 @@ export function PrivyProvider({ children }: { children: React.ReactNode }) {
       config={{
         loginMethods: ["wallet", "email"],
         embeddedWallets: {
-          createOnLogin: "all-users",
+          ethereum: {
+            createOnLogin: "all-users" as const,
+          },
         },
         appearance: {
           theme: "light",
