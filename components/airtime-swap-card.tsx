@@ -47,9 +47,12 @@ const airtimeSchema = z.object({
   token: z.enum(["USDC", "USDT"]),
   amount: z.string().refine(
     (val) => {
+      // Allow empty string initially (will be set programmatically for bundles)
+      if (!val || val.trim() === '') {
+        return false;
+      }
       const num = parseFloat(val);
       // Basic validation: must be a valid positive number
-      // Specific min/max validation is handled in the form's register validation function
       return !isNaN(num) && num > 0;
     },
     { message: "Please enter a valid amount" }
@@ -132,6 +135,7 @@ export function AirtimeSwapCard() {
     handleSubmit,
     watch,
     setValue,
+    trigger,
     formState: { errors },
   } = useForm<AirtimeFormData>({
     resolver: zodResolver(airtimeSchema),
@@ -639,6 +643,8 @@ export function AirtimeSwapCard() {
             const rate = selectedToken === "USDC" ? exchangeRate.usdcToNgn : exchangeRate.usdtToNgn;
             const exactTokenAmount = (bundlePrice / rate).toFixed(20);
             setValue("amount", exactTokenAmount);
+            // Trigger revalidation to clear any validation errors
+            trigger("amount");
           }
         }
       } else if (selectedCategory === "cable_tv" && selectedPackage) {
@@ -649,11 +655,13 @@ export function AirtimeSwapCard() {
             const rate = selectedToken === "USDC" ? exchangeRate.usdcToNgn : exchangeRate.usdtToNgn;
             const exactTokenAmount = (packagePrice / rate).toFixed(20);
             setValue("amount", exactTokenAmount);
+            // Trigger revalidation to clear any validation errors
+            trigger("amount");
           }
         }
       }
     }
-  }, [selectedToken, exchangeRate, selectedBundle, selectedPackage, selectedCategory, bundles, cablePackages, setValue]);
+  }, [selectedToken, exchangeRate, selectedBundle, selectedPackage, selectedCategory, bundles, cablePackages, setValue, trigger]);
 
   // Calculate amounts based on category
   // For airtime: selectedAmount is NGN, calculate tokenAmount
@@ -712,6 +720,35 @@ export function AirtimeSwapCard() {
         variant: "destructive",
       });
       return;
+    }
+
+    // Custom validation for data bundles and cable TV
+    if (selectedCategory === "data_bundle" && selectedBundle) {
+      const bundle = bundles.find(b => b.code === selectedBundle);
+      if (bundle && (!data.amount || parseFloat(data.amount) <= 0)) {
+        // Force set the amount if it's not properly set
+        const bundlePrice = parseFloat(bundle.price);
+        if (!isNaN(bundlePrice) && bundlePrice > 0 && exchangeRate) {
+          const rate = selectedToken === "USDC" ? exchangeRate.usdcToNgn : exchangeRate.usdtToNgn;
+          const exactTokenAmount = (bundlePrice / rate).toFixed(20);
+          setValue("amount", exactTokenAmount);
+          data.amount = exactTokenAmount;
+          await trigger("amount");
+        }
+      }
+    } else if (selectedCategory === "cable_tv" && selectedPackage) {
+      const pkg = cablePackages.find(p => p.code === selectedPackage);
+      if (pkg && (!data.amount || parseFloat(data.amount) <= 0)) {
+        // Force set the amount if it's not properly set
+        const packagePrice = parseFloat(pkg.price);
+        if (!isNaN(packagePrice) && packagePrice > 0 && exchangeRate) {
+          const rate = selectedToken === "USDC" ? exchangeRate.usdcToNgn : exchangeRate.usdtToNgn;
+          const exactTokenAmount = (packagePrice / rate).toFixed(20);
+          setValue("amount", exactTokenAmount);
+          data.amount = exactTokenAmount;
+          await trigger("amount");
+        }
+      }
     }
 
     // Validate phone number for airtime and data bundle
@@ -1197,6 +1234,11 @@ export function AirtimeSwapCard() {
           ? "/api/data-bundle/purchase"
           : `/api/${selectedCategory}/purchase`;
 
+      // Ensure wallet address is properly set
+      if (!walletAddress || !selectedWalletAddress) {
+        throw new Error('Wallet address not found. Please try switching payment methods.');
+      }
+
       const purchaseBody: any = {
         walletAddress: walletAddress,
         privyUserId: user?.id,
@@ -1309,7 +1351,13 @@ export function AirtimeSwapCard() {
         }
 
         // Refresh balance after successful transaction
-        refreshBalances();
+        if (paymentOption === 'external' && selectedWalletAddress) {
+          // Refresh external wallet balance
+          refreshBalancesForWallet(selectedWalletAddress);
+        } else {
+          // Refresh Privy wallet balance
+          refreshBalances();
+        }
 
         // Reset form
         resetForm();
