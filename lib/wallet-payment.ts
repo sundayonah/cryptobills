@@ -136,6 +136,125 @@ export async function waitForTransactionConfirmation(
 }
 
 // ============================================
+// EXTERNAL WALLET PAYMENT FUNCTIONS
+// ============================================
+
+/**
+ * Send ERC-20 token transfer using external wallet (MetaMask, Trust Wallet, etc.)
+ * User pays gas fees themselves
+ */
+export async function sendExternalWalletTransaction(
+    provider: EthereumProvider,
+    tokenAddress: Address,
+    recipientAddress: Address,
+    amount: bigint,
+    fromAddress: Address
+): Promise<Hash> {
+    try {
+        // Prepare ERC-20 transfer data
+        const transferData = encodeFunctionData({
+            abi: erc20Abi,
+            functionName: 'transfer',
+            args: [recipientAddress, amount],
+        });
+
+        // Send transaction via external wallet
+        const txHash = await provider.request({
+            method: 'eth_sendTransaction',
+            params: [
+                {
+                    from: fromAddress,
+                    to: tokenAddress,
+                    data: transferData,
+                    value: '0x0', // ERC-20 transfers don't send ETH
+                },
+            ],
+        });
+
+        return txHash as Hash;
+    } catch (error: any) {
+        throw new Error(`External wallet transaction failed: ${error.message || error}`);
+    }
+}
+
+/**
+ * Switch network on external wallet if needed
+ */
+export async function switchNetworkIfNeeded(
+    provider: EthereumProvider,
+    targetChainId: number
+): Promise<void> {
+    try {
+        // Get current chain ID
+        const currentChainId = await provider.request({ method: 'eth_chainId' });
+        const currentChainIdDecimal = parseInt(currentChainId, 16);
+
+        if (currentChainIdDecimal !== targetChainId) {
+            // Request network switch
+            await provider.request({
+                method: 'wallet_switchEthereumChain',
+                params: [{ chainId: `0x${targetChainId.toString(16)}` }],
+            });
+        }
+    } catch (error: any) {
+        // If network doesn't exist in wallet, we could add it here
+        // For now, just throw the error
+        throw new Error(`Failed to switch network: ${error.message || error}`);
+    }
+}
+
+/**
+ * Get external wallet provider from Privy wallet object
+ */
+export async function getExternalWalletProvider(wallet: PrivyWallet): Promise<EthereumProvider> {
+    if (wallet.connectorType === 'embedded') {
+        throw new Error('Cannot use embedded wallet as external wallet');
+    }
+
+    const provider = await wallet.getEthereumProvider();
+    if (!provider) {
+        throw new Error('Failed to get provider from external wallet');
+    }
+
+    return provider;
+}
+
+/**
+ * Estimate gas for external wallet transaction
+ */
+export async function estimateExternalWalletGas(
+    provider: EthereumProvider,
+    tokenAddress: Address,
+    recipientAddress: Address,
+    amount: bigint,
+    fromAddress: Address
+): Promise<bigint> {
+    try {
+        const transferData = encodeFunctionData({
+            abi: erc20Abi,
+            functionName: 'transfer',
+            args: [recipientAddress, amount],
+        });
+
+        const gasEstimate = await provider.request({
+            method: 'eth_estimateGas',
+            params: [
+                {
+                    from: fromAddress,
+                    to: tokenAddress,
+                    data: transferData,
+                    value: '0x0',
+                },
+            ],
+        });
+
+        return BigInt(gasEstimate);
+    } catch (error: any) {
+        throw new Error(`Gas estimation failed: ${error.message || error}`);
+    }
+}
+
+// ============================================
 // UTILITY FUNCTIONS
 // ============================================
 

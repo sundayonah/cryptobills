@@ -27,6 +27,10 @@ interface BalanceContextType {
   isLoading: boolean;
   refreshBalances: (targetChainId?: number) => Promise<void>;
   getBalance: (token: SupportedToken) => TokenBalance | null;
+  // Multi-wallet support
+  getBalanceForWallet: (token: SupportedToken, walletAddress: string) => TokenBalance | null;
+  refreshBalancesForWallet: (walletAddress: string, targetChainId?: number) => Promise<void>;
+  walletBalances: Record<string, Record<SupportedToken, TokenBalance | null>>;
 }
 
 const BalanceContext = createContext<BalanceContextType | undefined>(undefined);
@@ -43,41 +47,128 @@ async function fetchTokenBalance(
   walletAddress: string,
   tokenSymbol: SupportedToken
 ): Promise<TokenBalance | null> {
-  try {
-    const tokenContract = new ethers.Contract(
-      tokenAddress,
-      ERC20_ABI,
-      provider
-    );
-
-    // Get balance and decimals with timeout
-    const balancePromise = tokenContract.balanceOf(walletAddress);
-    const decimalsPromise = tokenContract.decimals();
-
-    // Add timeout to prevent hanging
-    const timeout = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error("Request timeout")), 10000)
-    );
-
-    const [balance, decimals] = await Promise.race([
-      Promise.all([balancePromise, decimalsPromise]),
-      timeout,
-    ]) as [bigint, bigint];
-
-    // Format balance
-    const formatted = ethers.formatUnits(balance, decimals);
-
-    return {
-      token: tokenSymbol,
-      balance: balance.toString(),
-      formatted: parseFloat(formatted).toFixed(6), // Show up to 6 decimal places
-      decimals: Number(decimals),
-    };
-  } catch (error: any) {
-    // Expected errors (timeout, call exceptions, etc.) are silently handled
-    // Always return null on error to prevent breaking the UI
+  // Create cache key
+  const cacheKey = `${walletAddress}-${tokenAddress}-${tokenSymbol}`;
+  
+  // Check cache first
+  const cached = balanceCache.get(cacheKey);
+  if (cached) {
+    // Use longer cache for rate limited responses
+    const cacheAge = Date.now() - cached.timestamp;
+    const ttl = cached.isRateLimited ? RATE_LIMIT_BACKOFF_TTL : BALANCE_CACHE_TTL;
+    
+    if (cacheAge < ttl) {
+      return cached.data;
+    }
+  }
+  
+  // Check if request is already in progress
+  if (activeRequests.has(cacheKey)) {
+    return activeRequests.get(cacheKey)!;
+  }
+  
+  // Check concurrent request limit - if exceeded, return cached value or null
+  if (activeRequestCount >= MAX_CONCURRENT_REQUESTS) {
+    console.warn(`Max concurrent requests reached, using cached value for ${tokenSymbol}`);
+    const staleCache = balanceCache.get(cacheKey);
+    if (staleCache) {
+      return staleCache.data;
+    }
     return null;
   }
+  
+  // Create new request
+  const requestPromise = (async (): Promise<TokenBalance | null> => {
+    activeRequestCount++;
+    
+    try {
+      const tokenContract = new ethers.Contract(
+        tokenAddress,
+        ERC20_ABI,
+        provider
+      );
+
+      // Get balance and decimals with timeout
+      const balancePromise = tokenContract.balanceOf(walletAddress);
+      const decimalsPromise = tokenContract.decimals();
+
+      // Shorter timeout to fail fast on rate limits
+      const timeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Request timeout")), 5000)
+      );
+
+      const [balance, decimals] = await Promise.race([
+        Promise.all([balancePromise, decimalsPromise]),
+        timeout,
+      ]) as [bigint, bigint];
+
+      // Format balance
+      const formatted = ethers.formatUnits(balance, decimals);
+
+      const result: TokenBalance = {
+        token: tokenSymbol,
+        balance: balance.toString(),
+        formatted: parseFloat(formatted).toFixed(6), // Show up to 6 decimal places
+        decimals: Number(decimals),
+      };
+
+      // Cache successful result
+      balanceCache.set(cacheKey, {
+        data: result,
+        timestamp: Date.now(),
+      });
+
+      return result;
+    } catch (error: any) {
+      // Handle rate limiting specifically
+      const isRateLimit = error?.code === 'NETWORK_ERROR' || 
+          error?.reason?.includes('429') ||
+          error?.message?.includes('Too Many Requests') ||
+          error?.status === 429;
+          
+      if (isRateLimit) {
+        console.warn(`Rate limited for ${tokenSymbol} balance fetch, using cache if available`);
+        
+        // Return stale cache if available during rate limit
+        const staleCache = balanceCache.get(cacheKey);
+        if (staleCache) {
+          // Mark as rate limited for longer cache TTL
+          balanceCache.set(cacheKey, {
+            data: staleCache.data,
+            timestamp: Date.now(),
+            isRateLimited: true,
+          });
+          return staleCache.data;
+        }
+        
+        // No cache available, cache null with rate limit flag
+        balanceCache.set(cacheKey, {
+          data: null,
+          timestamp: Date.now(),
+          isRateLimited: true,
+        });
+      } else {
+        // Other errors - cache null result briefly to avoid rapid retries
+        console.warn(`Failed to fetch ${tokenSymbol} balance:`, error?.message || error);
+        
+        balanceCache.set(cacheKey, {
+          data: null,
+          timestamp: Date.now(),
+        });
+      }
+      
+      return null;
+    } finally {
+      // Remove from active requests and decrement counter
+      activeRequests.delete(cacheKey);
+      activeRequestCount--;
+    }
+  })();
+  
+  // Store active request
+  activeRequests.set(cacheKey, requestPromise);
+  
+  return requestPromise;
 }
 
 export function BalanceProvider({ children }: { children: ReactNode }) {
@@ -89,6 +180,9 @@ export function BalanceProvider({ children }: { children: ReactNode }) {
     USDC: null,
     USDT: null,
   });
+  const [walletBalances, setWalletBalances] = useState<
+    Record<string, Record<SupportedToken, TokenBalance | null>>
+  >({});
   const [isLoading, setIsLoading] = useState(false);
 
   const fetchBalances = useCallback(async (targetChainId?: number) => {
@@ -134,7 +228,7 @@ export function BalanceProvider({ children }: { children: ReactNode }) {
       // Priority 3: If targetChainId is provided, skip provider checks and use RPC directly
       // This ensures we fetch balances for the correct network even if wallet state hasn't updated
       if (targetChainId) {
-        const rpcUrl = getRpcUrlForChain(targetChainId);
+        const rpcUrl = await getWorkingRpcUrl(targetChainId);
         if (rpcUrl) {
           try {
             provider = new ethers.JsonRpcProvider(rpcUrl);
@@ -209,7 +303,7 @@ export function BalanceProvider({ children }: { children: ReactNode }) {
 
       // Priority 6: If we have chainId but no provider, create one from RPC URL
       if (!provider && chainId) {
-        const rpcUrl = getRpcUrlForChain(chainId);
+        const rpcUrl = await getWorkingRpcUrl(chainId);
         if (rpcUrl) {
           try {
             provider = new ethers.JsonRpcProvider(rpcUrl);
@@ -306,6 +400,117 @@ export function BalanceProvider({ children }: { children: ReactNode }) {
     return balances[token];
   };
 
+  // Multi-wallet functions
+  const getBalanceForWallet = (token: SupportedToken, walletAddress: string): TokenBalance | null => {
+    const normalizedAddress = walletAddress.toLowerCase();
+    return walletBalances[normalizedAddress]?.[token] || null;
+  };
+
+  const fetchBalancesForWallet = async (walletAddress: string, targetChainId?: number) => {
+    if (!ready || !authenticated || !user) {
+      return;
+    }
+
+    const normalizedAddress = walletAddress.toLowerCase();
+    setIsLoading(true);
+
+    try {
+      // Prioritize target chainId, then Privy wallet chain ID
+      let provider: ethers.Provider | null = null;
+      let chainId: number | null = targetChainId || null;
+      let usePrivyChain = false;
+
+      // Priority 1: If targetChainId is provided, use it
+      if (targetChainId) {
+        const rpcUrl = await getWorkingRpcUrl(targetChainId);
+        if (rpcUrl) {
+          try {
+            provider = new ethers.JsonRpcProvider(rpcUrl);
+          } catch (error) {
+            console.error("Failed to create RPC provider for target chain:", error);
+          }
+        }
+      }
+      // Priority 2: Get chain ID from Privy wallet
+      else if (wallets && wallets.length > 0) {
+        const wallet = wallets[0];
+        if (wallet.chainId) {
+          chainId = parseInt(wallet.chainId.split(":")[1] || wallet.chainId);
+          usePrivyChain = true;
+        }
+      }
+
+      // Priority 3: Use RPC fallback if we have chainId but no provider
+      if (!provider && chainId) {
+        const rpcUrl = await getWorkingRpcUrl(chainId);
+        if (rpcUrl) {
+          try {
+            provider = new ethers.JsonRpcProvider(rpcUrl);
+          } catch (error) {
+            console.error("Failed to create RPC provider:", error);
+          }
+        }
+      }
+
+      // If no provider or chainId, use Base as default (most common)
+      if (!provider || !chainId) {
+        chainId = 8453; // Base Mainnet
+        provider = new ethers.JsonRpcProvider("https://mainnet.base.org");
+      }
+
+      const finalChainId = chainId!;
+      const finalProvider = provider!;
+
+      // Fetch balances for this specific wallet
+      const tokenPromises = (["USDC", "USDT"] as SupportedToken[]).map(async (tokenSymbol) => {
+        try {
+          const tokenAddress = getTokenAddressForChain(tokenSymbol, finalChainId);
+          if (!tokenAddress) return { token: tokenSymbol, balance: null };
+
+          const balance = await fetchTokenBalance(
+            finalProvider,
+            tokenAddress,
+            normalizedAddress,
+            tokenSymbol
+          );
+
+          return { token: tokenSymbol, balance };
+        } catch (error) {
+          return { token: tokenSymbol, balance: null };
+        }
+      });
+
+      const results = await Promise.all(tokenPromises);
+      
+      // Update wallet balances
+      const newWalletBalances = { ...walletBalances };
+      if (!newWalletBalances[normalizedAddress]) {
+        newWalletBalances[normalizedAddress] = { USDC: null, USDT: null };
+      }
+      
+      results.forEach(({ token, balance }) => {
+        newWalletBalances[normalizedAddress][token] = balance;
+      });
+
+      setWalletBalances(newWalletBalances);
+
+      // If this is the primary wallet, also update main balances
+      const primaryWalletAddress = getWalletAddressFromPrivyUser(user);
+      if (primaryWalletAddress && normalizedAddress === primaryWalletAddress.toLowerCase()) {
+        const newBalances: Record<SupportedToken, TokenBalance | null> = { USDC: null, USDT: null };
+        results.forEach(({ token, balance }) => {
+          newBalances[token] = balance;
+        });
+        setBalances(newBalances);
+      }
+
+    } catch (error: any) {
+      console.error("Error fetching wallet balances:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
     <BalanceContext.Provider
       value={{
@@ -313,6 +518,9 @@ export function BalanceProvider({ children }: { children: ReactNode }) {
         isLoading,
         refreshBalances: fetchBalances,
         getBalance,
+        getBalanceForWallet,
+        refreshBalancesForWallet: fetchBalancesForWallet,
+        walletBalances,
       }}
     >
       {children}
@@ -328,15 +536,82 @@ export const useBalance = () => {
   return context;
 };
 
-// Helper function to get RPC URL for a chain
-function getRpcUrlForChain(chainId: number): string | null {
-  const rpcUrls: Record<number, string> = {
-    // 1: "https://eth-mainnet.g.alchemy.com/v2/", // Ethereum Mainnet (Alchemy)
-    43114: "https://api.avax.network/ext/bc/C/rpc", // Avalanche C-Chain Mainnet
-    137: "https://polygon-rpc.com", // Polygon Mainnet
-    42161: "https://arb1.arbitrum.io/rpc", // Arbitrum Mainnet
-    8453: "https://mainnet.base.org", // Base Mainnet
-    // 56: "https://bsc-dataseed.binance.org", // BSC (Binance Smart Chain) Mainnet - temporarily commented out
+// Rate limiting cache for balance requests
+const BALANCE_CACHE_TTL = 30000; // 30 seconds
+const RATE_LIMIT_BACKOFF_TTL = 60000; // 1 minute backoff after rate limit
+const MAX_CONCURRENT_REQUESTS = 3; // Limit concurrent RPC requests
+const balanceCache = new Map<string, { data: TokenBalance | null; timestamp: number; isRateLimited?: boolean }>();
+const activeRequests = new Map<string, Promise<TokenBalance | null>>();
+let activeRequestCount = 0;
+
+// Helper function to get RPC URLs with fallbacks for a chain
+function getRpcUrlsForChain(chainId: number): string[] {
+  const rpcUrls: Record<number, string[]> = {
+    // Base Mainnet - multiple fallbacks to avoid rate limiting
+    8453: [
+      "https://base.llamarpc.com",
+      "https://base.blockpi.network/v1/rpc/public",
+      "https://base-rpc.publicnode.com",
+      "https://mainnet.base.org", // Official but rate limited
+    ],
+    137: [
+      "https://polygon-rpc.com",
+      "https://polygon.llamarpc.com",
+      "https://polygon.blockpi.network/v1/rpc/public",
+    ],
+    42161: [
+      "https://arb1.arbitrum.io/rpc",
+      "https://arbitrum.llamarpc.com",
+      "https://arbitrum.blockpi.network/v1/rpc/public",
+    ],
+    43114: [
+      "https://api.avax.network/ext/bc/C/rpc",
+      "https://avalanche.public-rpc.com",
+    ],
   };
-  return rpcUrls[chainId] || null;
+  return rpcUrls[chainId] || [];
+}
+
+// Helper function to get first working RPC URL for a chain
+async function getWorkingRpcUrl(chainId: number): Promise<string | null> {
+  const urls = getRpcUrlsForChain(chainId);
+  
+  if (urls.length === 0) {
+    console.error(`No RPC URLs configured for chain ${chainId}`);
+    return null;
+  }
+  
+  // Try each URL with a timeout
+  for (let i = 0; i < urls.length; i++) {
+    const url = urls[i];
+    try {
+      // Test the RPC endpoint with a simple call and short timeout
+      const provider = new ethers.JsonRpcProvider(url);
+      
+      // Quick health check with 2 second timeout
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Health check timeout')), 2000)
+      );
+      
+      await Promise.race([
+        provider.getBlockNumber(),
+        timeoutPromise
+      ]);
+      
+      // If we get here, the RPC is working
+      console.log(`Using RPC endpoint: ${url}`);
+      return url;
+    } catch (error: any) {
+      const isLastUrl = i === urls.length - 1;
+      if (isLastUrl) {
+        console.error(`All RPC endpoints failed for chain ${chainId}`);
+      } else {
+        console.warn(`RPC endpoint ${url} failed (${error?.message || error}), trying next...`);
+      }
+    }
+  }
+  
+  // Return first URL as last resort fallback
+  console.warn(`Using fallback RPC endpoint for chain ${chainId}: ${urls[0]}`);
+  return urls[0];
 }
