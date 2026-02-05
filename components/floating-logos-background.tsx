@@ -31,32 +31,42 @@ const generateLogoProps = (index: number) => {
     // Horizontal positioning: prefer edges, avoid center (wider distribution)
     if (random1 < 0.4) {
         // Left side: 3-25% of viewport
-        initialX = 3 + random1 * 22;
+        const normalizedRandom = random1 / 0.4; // Normalize 0-0.4 to 0-1
+        initialX = 3 + normalizedRandom * 22;
     } else if (random1 > 0.6) {
         // Right side: 75-97% of viewport
-        initialX = 75 + (random1 - 0.6) * 22;
+        const normalizedRandom = (random1 - 0.6) / 0.4; // Normalize 0.6-1 to 0-1
+        initialX = 75 + normalizedRandom * 22;
     } else {
         // Center edges: 25-35% or 65-75% (avoiding main component area)
-        if (random1 < 0.5) {
-            initialX = 25 + (random1 - 0.4) * 10;
+        const normalizedRandom = (random1 - 0.4) / 0.2; // Normalize 0.4-0.6 to 0-1
+        if (normalizedRandom < 0.5) {
+            const subNormalized = normalizedRandom / 0.5; // Normalize 0-0.5 to 0-1
+            initialX = 25 + subNormalized * 10; // 25-35%
         } else {
-            initialX = 65 + (random1 - 0.5) * 10;
+            const subNormalized = (normalizedRandom - 0.5) / 0.5; // Normalize 0.5-1 to 0-1
+            initialX = 65 + subNormalized * 10; // 65-75%
         }
     }
 
     // Vertical positioning: better distribution across all areas
     if (random2 < 0.3) {
         // Top area: 3-25% of viewport
-        initialY = 3 + random2 * 22;
+        const normalizedRandom = random2 / 0.3; // Normalize 0-0.3 to 0-1
+        initialY = 3 + normalizedRandom * 22;
     } else if (random2 > 0.7) {
         // Bottom area: 75-97% of viewport
-        initialY = 75 + (random2 - 0.7) * 22;
+        const normalizedRandom = (random2 - 0.7) / 0.3; // Normalize 0.7-1 to 0-1
+        initialY = 75 + normalizedRandom * 22;
     } else {
         // Middle areas: 25-35% or 65-75% (avoiding main component)
-        if (random2 < 0.5) {
-            initialY = 25 + (random2 - 0.3) * 10;
+        const normalizedRandom = (random2 - 0.3) / 0.4; // Normalize 0.3-0.7 to 0-1
+        if (normalizedRandom < 0.5) {
+            const subNormalized = normalizedRandom / 0.5; // Normalize 0-0.5 to 0-1
+            initialY = 25 + subNormalized * 10; // 25-35%
         } else {
-            initialY = 65 + (random2 - 0.5) * 10;
+            const subNormalized = (normalizedRandom - 0.5) / 0.5; // Normalize 0.5-1 to 0-1
+            initialY = 65 + subNormalized * 10; // 65-75%
         }
     }
     // Reduce animation offset to prevent hover loop (logos move less)
