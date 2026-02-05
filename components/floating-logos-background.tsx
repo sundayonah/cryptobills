@@ -17,61 +17,66 @@ const STATIC_LOGOS = [
 
 // Generate random positions and animations for each logo instance
 const generateLogoProps = (index: number) => {
-    // Use index as seed for consistent randomness
-    const seed = index * 7919; // Prime number for better distribution
-    const random1 = (seed % 1000) / 1000;
-    const random2 = ((seed * 7919) % 1000) / 1000;
-    const random3 = ((seed * 7919 * 7919) % 1000) / 1000;
-    const random4 = ((seed * 7919 * 7919 * 7919) % 1000) / 1000;
+    // Better randomization using multiple seeds for more natural distribution
+    const seed1 = Math.sin(index * 12.9898) * 43758.5453;
+    const seed2 = Math.sin(index * 78.233) * 43758.5453;
+    const seed3 = Math.sin(index * 37.719) * 43758.5453;
+    const seed4 = Math.sin(index * 94.673) * 43758.5453;
+    const random1 = Math.abs(seed1 - Math.floor(seed1));
+    const random2 = Math.abs(seed2 - Math.floor(seed2));
+    const random3 = Math.abs(seed3 - Math.floor(seed3));
+    const random4 = Math.abs(seed4 - Math.floor(seed4));
 
     // Keep logos away from center area where main component is displayed
     // Better spacing distribution similar to Uniswap
     let initialX, initialY;
 
-    // Horizontal positioning: prefer edges, avoid center (wider distribution)
-    if (random1 < 0.4) {
-        // Left side: 3-25% of viewport
-        const normalizedRandom = random1 / 0.4; // Normalize 0-0.4 to 0-1
-        initialX = 3 + normalizedRandom * 22;
-    } else if (random1 > 0.6) {
-        // Right side: 75-97% of viewport
-        const normalizedRandom = (random1 - 0.6) / 0.4; // Normalize 0.6-1 to 0-1
-        initialX = 75 + normalizedRandom * 22;
+    // Horizontal positioning: better coverage across viewport with smaller exclusion
+    if (random1 < 0.25) {
+        // Left area: 2-38% of viewport
+        const normalizedRandom = random1 / 0.25;
+        initialX = 2 + normalizedRandom * 36;
+    } else if (random1 < 0.4) {
+        // Center-left: 38-45% of viewport
+        const normalizedRandom = (random1 - 0.25) / 0.15;
+        initialX = 38 + normalizedRandom * 7;
+    } else if (random1 < 0.6) {
+        // Center-right: 55-62% of viewport (smaller exclusion zone: 45-55%)
+        const normalizedRandom = (random1 - 0.4) / 0.2;
+        initialX = 55 + normalizedRandom * 7;
     } else {
-        // Center edges: 25-35% or 65-75% (avoiding main component area)
-        const normalizedRandom = (random1 - 0.4) / 0.2; // Normalize 0.4-0.6 to 0-1
-        if (normalizedRandom < 0.5) {
-            const subNormalized = normalizedRandom / 0.5; // Normalize 0-0.5 to 0-1
-            initialX = 25 + subNormalized * 10; // 25-35%
-        } else {
-            const subNormalized = (normalizedRandom - 0.5) / 0.5; // Normalize 0.5-1 to 0-1
-            initialX = 65 + subNormalized * 10; // 65-75%
-        }
+        // Right area: 62-98% of viewport
+        const normalizedRandom = (random1 - 0.6) / 0.4;
+        initialX = 62 + normalizedRandom * 36;
     }
 
-    // Vertical positioning: better distribution across all areas
-    if (random2 < 0.3) {
-        // Top area: 3-25% of viewport
-        const normalizedRandom = random2 / 0.3; // Normalize 0-0.3 to 0-1
-        initialY = 3 + normalizedRandom * 22;
-    } else if (random2 > 0.7) {
-        // Bottom area: 75-97% of viewport
-        const normalizedRandom = (random2 - 0.7) / 0.3; // Normalize 0.7-1 to 0-1
-        initialY = 75 + normalizedRandom * 22;
+    // Vertical positioning: better coverage across viewport with smaller exclusion
+    if (random2 < 0.2) {
+        // Top area: 2-32% of viewport
+        const normalizedRandom = random2 / 0.2;
+        initialY = 2 + normalizedRandom * 30;
+    } else if (random2 < 0.35) {
+        // Upper-middle: 32-40% of viewport
+        const normalizedRandom = (random2 - 0.2) / 0.15;
+        initialY = 32 + normalizedRandom * 8;
+    } else if (random2 < 0.65) {
+        // Lower-middle: 60-68% of viewport (smaller exclusion zone: 40-60%)
+        const normalizedRandom = (random2 - 0.35) / 0.3;
+        initialY = 60 + normalizedRandom * 8;
     } else {
-        // Middle areas: 25-35% or 65-75% (avoiding main component)
-        const normalizedRandom = (random2 - 0.3) / 0.4; // Normalize 0.3-0.7 to 0-1
-        if (normalizedRandom < 0.5) {
-            const subNormalized = normalizedRandom / 0.5; // Normalize 0-0.5 to 0-1
-            initialY = 25 + subNormalized * 10; // 25-35%
-        } else {
-            const subNormalized = (normalizedRandom - 0.5) / 0.5; // Normalize 0.5-1 to 0-1
-            initialY = 65 + subNormalized * 10; // 65-75%
-        }
+        // Bottom area: 68-98% of viewport
+        const normalizedRandom = (random2 - 0.65) / 0.35;
+        initialY = 68 + normalizedRandom * 30;
     }
-    // Reduce animation offset to prevent hover loop (logos move less)
-    const offsetX = (random3 - 0.5) * 10; // Reduced from 20 to 10
-    const offsetY = (random4 - 0.5) * 10; // Reduced from 20 to 10
+    // Animation offset for smooth floating movement
+    const offsetX = (random3 - 0.5) * 15; // Slightly more movement for better coverage
+    const offsetY = (random4 - 0.5) * 15; // Slightly more movement for better coverage
+
+    // Determine if logo is near swap area (should not have hover effects)
+    const isNearSwap = (
+        (initialX >= 30 && initialX <= 70) && // Within extended horizontal swap area
+        (initialY >= 25 && initialY <= 75)    // Within extended vertical swap area
+    );
 
     return {
         initialX, // 0-100% of viewport
@@ -80,7 +85,8 @@ const generateLogoProps = (index: number) => {
         offsetY,
         duration: 15 + random1 * 20, // 15-35 seconds for smooth floating
         delay: random2 * 5,
-        scale: 0.8 + random3 * 0.6, // 0.8-1.4 for size variety
+        scale: 0.7 + random3 * 0.4, // 0.7-1.1 for more subtle size variety
+        allowHover: !isNearSwap, // Only allow hover effects for logos away from swap
     };
 };
 
@@ -132,11 +138,12 @@ export function FloatingLogosBackground() {
     // Create multiple instances of each logo for a denser effect
     const LOGO_INSTANCES = [
         ...LOGOS,
-        ...LOGOS.map((logo, idx) => ({ ...logo, index: idx + LOGOS.length })), // Duplicate for density
+        ...LOGOS.map((logo, idx) => ({ ...logo, index: idx + LOGOS.length })), // First duplicate
+        ...LOGOS.slice(0, Math.floor(LOGOS.length * 0.7)).map((logo, idx) => ({ ...logo, index: idx + LOGOS.length * 2 })), // Partial third set for more density
     ];
 
     return (
-        <div className="fixed inset-0 overflow-hidden z-[11] hidden md:block" aria-hidden="true" style={{ pointerEvents: 'none' }}>
+        <div className="fixed inset-0 overflow-hidden z-[1] hidden md:block" aria-hidden="true" style={{ pointerEvents: 'none' }}>
             {LOGO_INSTANCES.map((logo, index) => {
                 const props = generateLogoProps(index);
                 return (
@@ -177,31 +184,34 @@ export function FloatingLogosBackground() {
                             willChange: "transform",
                             pointerEvents: "none", // Container doesn't capture pointer events
                             overflow: "visible", // Allow logo to expand beyond container
+                            zIndex: -1, // Ensure logos stay behind other content
                         }}
                     >
                         <motion.div
-                            className="relative w-16 h-16 md:w-20 md:h-20 cursor-pointer"
+                            className={`relative w-16 h-16 md:w-20 md:h-20 ${props.allowHover ? 'cursor-pointer' : ''}`}
                             style={{
                                 willChange: "opacity, transform, filter",
-                                pointerEvents: "auto", // Only the image div captures hover
+                                pointerEvents: props.allowHover ? "auto" : "none", // Only allow interaction for distant logos
                                 overflow: "visible", // Ensure logo can expand fully
                             }}
                             initial={{
-                                opacity: 0.3,
-                                scale: props.scale * 0.5, // Smaller by default
-                                filter: "blur(15px)",
+                                opacity: 0.2, // Slightly more visible to fill gaps
+                                scale: props.scale * 0.65, // Slightly larger for better coverage
+                                filter: "blur(6px)", // Even less blur for better visibility
                             }}
-                            whileHover={{
-                                opacity: 1,
-                                scale: props.scale, // Full size on hover
-                                filter: "blur(0px)",
-                                transition: {
-                                    duration: 0.2, // Fast transition on hover
-                                    opacity: { duration: 0.1 }, // Very fast return
-                                    filter: { duration: 0.1 }, // Very fast return
-                                    scale: { duration: 0.1 }, // Very fast return
-                                },
-                            }}
+                            {...(props.allowHover && {
+                                whileHover: {
+                                    opacity: 0.8, // More visible on hover
+                                    scale: props.scale * 0.9, // Scale up on hover
+                                    filter: "blur(0px)", // Reduce blur on hover
+                                    transition: {
+                                        duration: 0.3, // Smooth transition
+                                        opacity: { duration: 0.2 },
+                                        filter: { duration: 0.2 },
+                                        scale: { duration: 0.2 },
+                                    },
+                                }
+                            })}
                         >
                             <Image
                                 src={logo.path}
