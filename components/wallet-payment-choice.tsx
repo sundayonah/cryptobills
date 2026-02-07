@@ -85,57 +85,63 @@ export function WalletPaymentChoice({
           onClick={handlePrivyWalletClick}
           disabled={disabled}
           className={cn(
-            "w-full p-4 rounded-xl border-2 transition-all duration-200",
-            "flex items-center justify-between group",
+            "w-full p-3 sm:p-4 rounded-xl border sm:border-2 transition-colors duration-200",
+            "group",
             selectedOption === 'privy' 
               ? "border-blue-500 bg-blue-50" 
               : "border-gray-200 hover:border-gray-300 bg-white",
             disabled && "opacity-50 cursor-not-allowed"
           )}
-          whileHover={!disabled ? { scale: 1.02 } : undefined}
           whileTap={!disabled ? { scale: 0.98 } : undefined}
         >
-          <div className="flex items-center gap-3">
-            <div className="flex-shrink-0">
-              <div className={cn(
-                "w-5 h-5 rounded-full border-2 flex items-center justify-center",
-                selectedOption === 'privy' 
-                  ? "border-blue-500 bg-blue-500" 
-                  : "border-gray-300 group-hover:border-gray-400"
-              )}>
-                {selectedOption === 'privy' && <Check className="h-3 w-3 text-white" />}
-              </div>
-            </div>
-            
-            <div className="flex-1 text-left">
-              <div className="flex items-center gap-2 mb-1">
-                <span className="font-medium text-gray-900">{privyWallet.connectorName}</span>
-                <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-green-100 text-green-700">
-                  <Zap className="h-3 w-3" />
-                  <span className="text-xs font-medium">Sponsored</span>
+          <div className="flex flex-col gap-2 w-full">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="flex-shrink-0 pt-0.5">
+                  <div className={cn(
+                    "w-5 h-5 rounded-full border-2 flex items-center justify-center",
+                    selectedOption === 'privy' 
+                      ? "border-blue-500 bg-blue-500" 
+                      : "border-gray-300 group-hover:border-gray-400"
+                  )}>
+                    {selectedOption === 'privy' && <Check className="h-3 w-3 text-white" />}
+                  </div>
+                </div>
+
+                <div className="min-w-0 text-left">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-semibold text-gray-900 truncate">
+                      {privyWallet.connectorName}
+                    </span>
+                    <div className="flex items-center gap-1 px-2 py-0.5 sm:py-1 rounded-full bg-green-100 text-green-700">
+                      <Zap className="h-3 w-3" />
+                      <span className="text-[11px] font-medium">Sponsored</span>
+                    </div>
+                  </div>
                 </div>
               </div>
-              <div className="text-xs text-gray-500">
-                {privyWallet.address.slice(0, 6)}...{privyWallet.address.slice(-4)}
+
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <Image
+                  src={getTokenLogoPath(selectedToken)}
+                  alt={selectedToken}
+                  width={18}
+                  height={18}
+                  className="rounded-full flex-shrink-0"
+                />
+                {isLoadingBalance ? (
+                  <div className="animate-pulse w-12 h-4 bg-gray-200 rounded" />
+                ) : (
+                  <span className="text-sm font-semibold text-gray-900 tabular-nums whitespace-nowrap">
+                    {formatBalance(privyBalance)} {selectedToken}
+                  </span>
+                )}
               </div>
             </div>
-          </div>
 
-          <div className="flex items-center gap-2">
-            <Image
-              src={getTokenLogoPath(selectedToken)}
-              alt={selectedToken}
-              width={20}
-              height={20}
-              className="rounded-full flex-shrink-0"
-            />
-            {isLoadingBalance ? (
-              <div className="animate-pulse w-12 h-4 bg-gray-200 rounded" />
-            ) : (
-              <span className="text-sm font-medium text-gray-900">
-                {formatBalance(privyBalance)} {selectedToken}
-              </span>
-            )}
+            <div className="text-[11px] text-gray-500 hidden sm:block text-left">
+              {privyWallet.address.slice(0, 6)}...{privyWallet.address.slice(-4)}
+            </div>
           </div>
         </motion.button>
 
@@ -144,57 +150,63 @@ export function WalletPaymentChoice({
           onClick={handleExternalWalletClick}
           disabled={disabled}
           className={cn(
-            "w-full p-4 rounded-xl border-2 transition-all duration-200",
-            "flex items-center justify-between group",
+            "w-full p-3 sm:p-4 rounded-xl border sm:border-2 transition-colors duration-200",
+            "group",
             selectedOption === 'external' 
               ? "border-orange-500 bg-orange-50" 
               : "border-gray-200 hover:border-gray-300 bg-white",
             disabled && "opacity-50 cursor-not-allowed"
           )}
-          whileHover={!disabled ? { scale: 1.02 } : undefined}
           whileTap={!disabled ? { scale: 0.98 } : undefined}
         >
-          <div className="flex items-center gap-3">
-            <div className="flex-shrink-0">
-              <div className={cn(
-                "w-5 h-5 rounded-full border-2 flex items-center justify-center",
-                selectedOption === 'external' 
-                  ? "border-orange-500 bg-orange-500" 
-                  : "border-gray-300 group-hover:border-gray-400"
-              )}>
-                {selectedOption === 'external' && <Check className="h-3 w-3 text-white" />}
-              </div>
-            </div>
-            
-            <div className="flex-1 text-left">
-              <div className="flex items-center gap-2 mb-1">
-                <span className="font-medium text-gray-900">{primaryExternalWallet.connectorName}</span>
-                <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-orange-100 text-orange-700">
-                  <AlertCircle className="h-3 w-3" />
-                  <span className="text-xs font-medium">You pay gas</span>
+          <div className="flex flex-col gap-2 w-full">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="flex-shrink-0 pt-0.5">
+                  <div className={cn(
+                    "w-5 h-5 rounded-full border-2 flex items-center justify-center",
+                    selectedOption === 'external' 
+                      ? "border-orange-500 bg-orange-500" 
+                      : "border-gray-300 group-hover:border-gray-400"
+                  )}>
+                    {selectedOption === 'external' && <Check className="h-3 w-3 text-white" />}
+                  </div>
+                </div>
+
+                <div className="min-w-0 text-left">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-semibold text-gray-900 truncate">
+                      {primaryExternalWallet.connectorName}
+                    </span>
+                    <div className="flex items-center gap-1 px-2 py-0.5 sm:py-1 rounded-full bg-orange-100 text-orange-700">
+                      <AlertCircle className="h-3 w-3" />
+                      <span className="text-[11px] font-medium">You pay gas</span>
+                    </div>
+                  </div>
                 </div>
               </div>
-              <div className="text-xs text-gray-500">
-                {primaryExternalWallet.address.slice(0, 6)}...{primaryExternalWallet.address.slice(-4)}
+
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <Image
+                  src={getTokenLogoPath(selectedToken)}
+                  alt={selectedToken}
+                  width={18}
+                  height={18}
+                  className="rounded-full flex-shrink-0"
+                />
+                {isLoadingBalance ? (
+                  <div className="animate-pulse w-12 h-4 bg-gray-200 rounded" />
+                ) : (
+                  <span className="text-sm font-semibold text-gray-900 tabular-nums whitespace-nowrap">
+                    {formatBalance(externalBalance)} {selectedToken}
+                  </span>
+                )}
               </div>
             </div>
-          </div>
 
-          <div className="flex items-center gap-2">
-            <Image
-              src={getTokenLogoPath(selectedToken)}
-              alt={selectedToken}
-              width={20}
-              height={20}
-              className="rounded-full flex-shrink-0"
-            />
-            {isLoadingBalance ? (
-              <div className="animate-pulse w-12 h-4 bg-gray-200 rounded" />
-            ) : (
-              <span className="text-sm font-medium text-gray-900">
-                {formatBalance(externalBalance)} {selectedToken}
-              </span>
-            )}
+            <div className="text-[11px] text-gray-500 hidden sm:block text-left">
+              {primaryExternalWallet.address.slice(0, 6)}...{primaryExternalWallet.address.slice(-4)}
+            </div>
           </div>
         </motion.button>
       </div>
