@@ -1,11 +1,11 @@
 "use client";
-
 import {
   createContext,
   useContext,
   useEffect,
   useState,
   useCallback,
+  useMemo,
   ReactNode,
 } from "react";
 import { usePrivy } from "@privy-io/react-auth";
@@ -13,7 +13,8 @@ import { useWallets } from "@privy-io/react-auth";
 import { ethers } from "ethers";
 import { getWalletAddressFromPrivyUser } from "@/lib/privy-utils";
 import { getTokenAddressForChain } from "@/lib/token-utils";
-import type { SupportedToken } from "@/types";
+
+export type SupportedToken = "USDC" | "USDT";
 
 interface TokenBalance {
   token: SupportedToken;
@@ -22,15 +23,23 @@ interface TokenBalance {
   decimals: number;
 }
 
+interface WalletBalances {
+  USDC: TokenBalance | null;
+  USDT: TokenBalance | null;
+}
+
 interface BalanceContextType {
-  balances: Record<SupportedToken, TokenBalance | null>;
+  // Privy wallet balances
+  privyBalances: WalletBalances;
+  // Injected wallet balances
+  injectedBalances: WalletBalances;
+  // Current wallet balances based on payment option
+  balances: WalletBalances;
   isLoading: boolean;
-  refreshBalances: (targetChainId?: number) => Promise<void>;
+  refreshBalances: () => Promise<void>;
+  refreshInjectedBalances: () => Promise<void>;
   getBalance: (token: SupportedToken) => TokenBalance | null;
-  // Multi-wallet support
-  getBalanceForWallet: (token: SupportedToken, walletAddress: string) => TokenBalance | null;
-  refreshBalancesForWallet: (walletAddress: string, targetChainId?: number) => Promise<void>;
-  walletBalances: Record<string, Record<SupportedToken, TokenBalance | null>>;
+  clearBalanceCache: (walletType?: 'privy' | 'injected') => void;
 }
 
 const BalanceContext = createContext<BalanceContextType | undefined>(undefined);
@@ -41,487 +50,430 @@ const ERC20_ABI = [
   "function decimals() external view returns (uint8)",
 ];
 
+// Supported chain IDs
+const SUPPORTED_CHAIN_IDS = [
+  8453,   // Base Mainnet
+  137,    // Polygon Mainnet
+  42161,  // Arbitrum Mainnet
+  43114,  // Avalanche C-Chain Mainnet
+];
+
+// RPC URLs for each chain - using Alchemy as primary with fallbacks
+const RPC_URLS: Record<number, string[]> = {
+  8453: [
+    "https://base-mainnet.g.alchemy.com/v2/f9VLG4qggmoQThJmgLuSA", // Alchemy Primary
+    "https://base.llamarpc.com", // Fallback
+    "https://base-rpc.publicnode.com",
+  ],
+  137: [
+    "https://polygon-mainnet.g.alchemy.com/v2/f9VLG4qggmoQThJmgLuSA", // Alchemy Primary
+    "https://polygon.llamarpc.com", // Fallback
+    "https://polygon-rpc.com",
+  ],
+  42161: [
+    "https://arb-mainnet.g.alchemy.com/v2/f9VLG4qggmoQThJmgLuSA", // Alchemy Primary
+    "https://arbitrum.llamarpc.com", // Fallback
+    "https://arb1.arbitrum.io/rpc",
+  ],
+  43114: [
+    "https://avax-mainnet.g.alchemy.com/v2/f9VLG4qggmoQThJmgLuSA", // Alchemy Primary
+    "https://avalanche.public-rpc.com", // Fallback
+    "https://api.avax.network/ext/bc/C/rpc",
+  ],
+};
+
+// Cache for balance requests
+const BALANCE_CACHE_TTL = 30000; // 30 seconds
+const balanceCache = new Map<string, { data: TokenBalance | null; timestamp: number }>();
+
+// Helper function to get chain name
+const getChainName = (chainId: number): string => {
+  const chainNames: Record<number, string> = {
+    8453: 'Base',
+    137: 'Polygon',
+    42161: 'Arbitrum',
+    43114: 'Avalanche'
+  };
+  return chainNames[chainId] || `Chain ${chainId}`;
+};
+
 async function fetchTokenBalance(
   provider: ethers.Provider,
   tokenAddress: string,
   walletAddress: string,
-  tokenSymbol: SupportedToken
+  tokenSymbol: SupportedToken,
+  chainId: number
 ): Promise<TokenBalance | null> {
-  // Create cache key
-  const cacheKey = `${walletAddress}-${tokenAddress}-${tokenSymbol}`;
-  
+  // Create cache key with chain ID
+  const cacheKey = `${walletAddress}-${chainId}-${tokenSymbol}`;
+
   // Check cache first
   const cached = balanceCache.get(cacheKey);
-  if (cached) {
-    // Use longer cache for rate limited responses
-    const cacheAge = Date.now() - cached.timestamp;
-    const ttl = cached.isRateLimited ? RATE_LIMIT_BACKOFF_TTL : BALANCE_CACHE_TTL;
-    
-    if (cacheAge < ttl) {
-      return cached.data;
-    }
+  if (cached && (Date.now() - cached.timestamp) < BALANCE_CACHE_TTL) {
+    return cached.data;
   }
-  
-  // Check if request is already in progress
-  if (activeRequests.has(cacheKey)) {
-    return activeRequests.get(cacheKey)!;
-  }
-  
-  // Check concurrent request limit - if exceeded, return cached value or null
-  if (activeRequestCount >= MAX_CONCURRENT_REQUESTS) {
-    console.warn(`Max concurrent requests reached, using cached value for ${tokenSymbol}`);
-    const staleCache = balanceCache.get(cacheKey);
-    if (staleCache) {
-      return staleCache.data;
-    }
+
+  try {
+    const contract = new ethers.Contract(tokenAddress, ERC20_ABI, provider);
+
+    const [balance, decimals] = await Promise.all([
+      contract.balanceOf(walletAddress),
+      contract.decimals(),
+    ]);
+
+    const formatted = ethers.formatUnits(balance, decimals);
+
+    const result: TokenBalance = {
+      token: tokenSymbol,
+      balance: balance.toString(),
+      formatted,
+      decimals: Number(decimals),
+    };
+
+    // Cache the result
+    balanceCache.set(cacheKey, {
+      data: result,
+      timestamp: Date.now(),
+    });
+
+    return result;
+  } catch (error: any) {
+    console.warn(`[fetchTokenBalance] Failed to fetch ${tokenSymbol} on chain ${chainId}: ${error?.message}`);
+
+    // Cache null result to avoid repeated failures
+    balanceCache.set(cacheKey, {
+      data: null,
+      timestamp: Date.now(),
+    });
+
     return null;
   }
-  
-  // Create new request
-  const requestPromise = (async (): Promise<TokenBalance | null> => {
-    activeRequestCount++;
-    
+}
+
+async function getWorkingRpcUrl(chainId: number): Promise<string | null> {
+  const urls = RPC_URLS[chainId] || [];
+
+  if (urls.length === 0) {
+    console.error(`No RPC URLs configured for chain ${chainId}`);
+    return null;
+  }
+
+  // Try each URL until one works
+  for (let i = 0; i < urls.length; i++) {
+    const url = urls[i];
     try {
-      const tokenContract = new ethers.Contract(
-        tokenAddress,
-        ERC20_ABI,
-        provider
-      );
+      // Test RPC connectivity
+      const provider = new ethers.JsonRpcProvider(url);
+      await Promise.race([
+        provider.getBlockNumber(),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000))
+      ]);
 
-      // Get balance and decimals with timeout
-      const balancePromise = tokenContract.balanceOf(walletAddress);
-      const decimalsPromise = tokenContract.decimals();
-
-      // Shorter timeout to fail fast on rate limits
-      const timeout = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("Request timeout")), 5000)
-      );
-
-      const [balance, decimals] = await Promise.race([
-        Promise.all([balancePromise, decimalsPromise]),
-        timeout,
-      ]) as [bigint, bigint];
-
-      // Format balance
-      const formatted = ethers.formatUnits(balance, decimals);
-
-      const result: TokenBalance = {
-        token: tokenSymbol,
-        balance: balance.toString(),
-        formatted: parseFloat(formatted).toFixed(6), // Show up to 6 decimal places
-        decimals: Number(decimals),
-      };
-
-      // Cache successful result
-      balanceCache.set(cacheKey, {
-        data: result,
-        timestamp: Date.now(),
-      });
-
-      return result;
+      const isAlchemy = url.includes('alchemy.com');
+      return url;
     } catch (error: any) {
-      // Handle rate limiting specifically
-      const isRateLimit = error?.code === 'NETWORK_ERROR' || 
-          error?.reason?.includes('429') ||
-          error?.message?.includes('Too Many Requests') ||
-          error?.status === 429;
-          
-      if (isRateLimit) {
-        console.warn(`Rate limited for ${tokenSymbol} balance fetch, using cache if available`);
-        
-        // Return stale cache if available during rate limit
-        const staleCache = balanceCache.get(cacheKey);
-        if (staleCache) {
-          // Mark as rate limited for longer cache TTL
-          balanceCache.set(cacheKey, {
-            data: staleCache.data,
-            timestamp: Date.now(),
-            isRateLimited: true,
-          });
-          return staleCache.data;
-        }
-        
-        // No cache available, cache null with rate limit flag
-        balanceCache.set(cacheKey, {
-          data: null,
-          timestamp: Date.now(),
-          isRateLimited: true,
-        });
-      } else {
-        // Other errors - cache null result briefly to avoid rapid retries
-        console.warn(`Failed to fetch ${tokenSymbol} balance:`, error?.message || error);
-        
-        balanceCache.set(cacheKey, {
-          data: null,
-          timestamp: Date.now(),
-        });
+      console.warn(`[RPC] ❌ Endpoint failed: ${url.includes('alchemy.com') ? 'Alchemy' : 'public'} (${error?.message})`);
+      if (i === urls.length - 1) {
+        console.error(`[RPC] All endpoints failed for chain ${chainId}, using fallback`);
+        return urls[0]; // Return first URL as last resort
       }
-      
-      return null;
-    } finally {
-      // Remove from active requests and decrement counter
-      activeRequests.delete(cacheKey);
-      activeRequestCount--;
     }
-  })();
-  
-  // Store active request
-  activeRequests.set(cacheKey, requestPromise);
-  
-  return requestPromise;
+  }
+
+  return urls[0];
 }
 
 export function BalanceProvider({ children }: { children: ReactNode }) {
   const { ready, authenticated, user } = usePrivy();
   const { wallets } = useWallets();
-  const [balances, setBalances] = useState<
-    Record<SupportedToken, TokenBalance | null>
-  >({
+
+  const [privyBalances, setPrivyBalances] = useState<WalletBalances>({
     USDC: null,
     USDT: null,
   });
-  const [walletBalances, setWalletBalances] = useState<
-    Record<string, Record<SupportedToken, TokenBalance | null>>
-  >({});
+
+  const [injectedBalances, setInjectedBalances] = useState<WalletBalances>({
+    USDC: null,
+    USDT: null,
+  });
+
   const [isLoading, setIsLoading] = useState(false);
 
-  const fetchBalances = useCallback(async (targetChainId?: number) => {
+  // Get Privy wallet chain ID - follows the current network selection
+  const getPrivyChainId = useCallback(async (): Promise<number> => {
+    // Make Privy wallet balance fetch dynamic based on current network
+    // This allows showing 0 balance on networks where Privy has no funds
+    if (typeof window === 'undefined' || !window.ethereum) return 8453;
+
+    try {
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const network = await provider.getNetwork();
+      const chainId = Number(network.chainId);
+
+      return SUPPORTED_CHAIN_IDS.includes(chainId) ? chainId : 8453;
+    } catch (error) {
+      console.warn("Failed to get current network for Privy, defaulting to Base:", error);
+      return 8453;
+    }
+  }, []);
+
+  // Note: Both Privy and injected wallets now follow the current network selection
+  // This allows showing network-specific balances for both wallet types
+
+  // Get injected wallet chain ID
+  const getInjectedChainId = useCallback(async (): Promise<number> => {
+    if (typeof window === 'undefined' || !window.ethereum) return 8453;
+
+    try {
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const network = await provider.getNetwork();
+      const chainId = Number(network.chainId);
+
+      return SUPPORTED_CHAIN_IDS.includes(chainId) ? chainId : 8453;
+    } catch (error) {
+      console.warn("Failed to get injected wallet chain ID:", error);
+      return 8453;
+    }
+  }, []);
+
+  // Fetch Privy wallet balances
+  const fetchPrivyBalances = useCallback(async () => {
     if (!ready || !authenticated || !user) {
-      setBalances({ USDC: null, USDT: null });
+      setPrivyBalances({ USDC: null, USDT: null });
       return;
     }
 
     const walletAddress = getWalletAddressFromPrivyUser(user);
     if (!walletAddress) {
-      setBalances({ USDC: null, USDT: null });
+      setPrivyBalances({ USDC: null, USDT: null });
       return;
     }
 
-    setIsLoading(true);
-
     try {
-      // Prioritize Privy wallet chain ID, especially for embedded wallets
-      let provider: ethers.Provider | null = null;
-      let chainId: number | null = targetChainId || null; // Use target chainId if provided
-      let usePrivyChain = false;
+      const chainId = await getPrivyChainId();
+      const rpcUrl = await getWorkingRpcUrl(chainId);
 
-      // Priority 1: If targetChainId is provided, use it (from network switch)
-      if (targetChainId) {
-        // Using target chainId from network switch
-      }
-      // Priority 2: Get chain ID from Privy wallet first (especially for embedded wallets)
-      else if (wallets && wallets.length > 0) {
-        const wallet = wallets[0];
-        // For embedded wallets, try to get chainId from provider if wallet.chainId is not available
-        if (wallet.chainId) {
-          chainId = parseInt(wallet.chainId.split(":")[1] || wallet.chainId);
-          // For embedded wallets, prioritize their chain ID
-          if (wallet.connectorType === 'embedded' || wallet.walletClientType === 'privy') {
-            usePrivyChain = true;
-          }
-        } else if (wallet.connectorType === 'embedded' || wallet.walletClientType === 'privy') {
-          // For embedded wallets, if chainId is not in wallet object, try to get it from provider
-          usePrivyChain = true;
-        }
-      }
-
-      // Priority 3: If targetChainId is provided, skip provider checks and use RPC directly
-      // This ensures we fetch balances for the correct network even if wallet state hasn't updated
-      if (targetChainId) {
-        const rpcUrl = await getWorkingRpcUrl(targetChainId);
-        if (rpcUrl) {
-          try {
-            provider = new ethers.JsonRpcProvider(rpcUrl);
-          } catch (error) {
-            console.error("Failed to create RPC provider for target chain:", error);
-          }
-        }
-      }
-      // Priority 4: Try Privy wallet provider first (especially for embedded wallets)
-      else if (wallets && wallets.length > 0) {
-        const wallet = wallets[0];
-        // For embedded wallets, always try to use their provider first
-        if (usePrivyChain || wallet.connectorType === 'embedded' || wallet.walletClientType === 'privy') {
-          try {
-            const ethereumProvider = await wallet.getEthereumProvider();
-            if (ethereumProvider) {
-              try {
-                const privyProvider = new ethers.BrowserProvider(ethereumProvider as any);
-                // Get chain ID from provider - this is the source of truth for embedded wallets
-                const network = await privyProvider.getNetwork();
-                const providerChainId = Number(network.chainId);
-
-                // Always use the chainId from Privy provider for embedded wallets
-                // This ensures we get the correct chain even if wallet.chainId wasn't set
-                chainId = providerChainId;
-
-                // Try to use the provider, but if it fails, we still have the chainId for RPC fallback
-                provider = privyProvider;
-              } catch (providerError) {
-                // Even if provider creation failed, if we got chainId above, we can use RPC
-                // chainId should have been set from wallet.chainId earlier, so we can continue
-              }
-            }
-          } catch (error) {
-            // Continue to RPC fallback if we have chainId from wallet.chainId
-          }
-        }
-      }
-
-      // Priority 5: Use window.ethereum only if we don't have a target chainId, no Privy chain, and no embedded wallet
-      // Never use window.ethereum if we detected an embedded wallet (to avoid wrong chain detection)
-      const isEmbeddedWallet = wallets && wallets.length > 0 &&
-        (wallets[0].connectorType === 'embedded' || wallets[0].walletClientType === 'privy');
-
-      if (!provider && !targetChainId && !isEmbeddedWallet && window.ethereum) {
-        try {
-          const tempProvider = new ethers.BrowserProvider(window.ethereum);
-          const network = await tempProvider.getNetwork();
-          const windowChainId = Number(network.chainId);
-
-          // If we have a Privy chain ID and it matches window.ethereum, use it
-          if (chainId && windowChainId === chainId) {
-            provider = tempProvider;
-          } else if (!chainId) {
-            // No Privy chain ID, use window.ethereum
-            provider = tempProvider;
-            chainId = windowChainId;
-          } else {
-            // Chain IDs don't match - prioritize Privy wallet chain
-            // Don't use window.ethereum provider, will use RPC instead
-          }
-        } catch (error) {
-          // Continue to RPC fallback
-        }
-      } else if (isEmbeddedWallet && !chainId && !provider) {
-        // If we have an embedded wallet but couldn't get chainId, wait a bit and retry
-        // Return early and let the useEffect retry when wallets updates
-        setBalances({ USDC: null, USDT: null });
-        setIsLoading(false);
+      if (!rpcUrl) {
+        console.error(`No RPC URL available for Privy wallet on chain ${chainId}`);
         return;
       }
 
-      // Priority 6: If we have chainId but no provider, create one from RPC URL
-      if (!provider && chainId) {
-        const rpcUrl = await getWorkingRpcUrl(chainId);
-        if (rpcUrl) {
-          try {
-            provider = new ethers.JsonRpcProvider(rpcUrl);
-          } catch (error) {
-            console.error("Failed to create RPC provider:", error);
-          }
-        }
-      }
+      const provider = new ethers.JsonRpcProvider(rpcUrl);
 
-      if (!provider || !chainId) {
-        console.warn("No provider available to fetch balances", { provider: !!provider, chainId });
-        setBalances({ USDC: null, USDT: null });
-        setIsLoading(false);
-        return;
-      }
-
-      // Check if chain is supported (mainnets only)
-      const supportedChainIds = [
-        137,    // Polygon Mainnet
-        42161,  // Arbitrum Mainnet
-        8453,   // Base Mainnet
-        43114,  // Avalanche C-Chain Mainnet
-        // 56,     // BSC (Binance Smart Chain) Mainnet - temporarily commented out
-      ];
-      if (!supportedChainIds.includes(chainId)) {
-        // Silently skip unsupported chains
-        setBalances({ USDC: null, USDT: null });
-        setIsLoading(false);
-        return;
-      }
-
-      // Get token addresses for current network
-      const usdcAddress = getTokenAddressForChain("USDC", chainId);
-      const usdtAddress = getTokenAddressForChain("USDT", chainId);
-
-      if (!usdcAddress || !usdtAddress) {
-        console.warn(`Token addresses not configured for chain ${chainId}`);
-        setBalances({ USDC: null, USDT: null });
-        setIsLoading(false);
-        return;
-      }
-
-      // Fetch both balances in parallel with better error handling
-      const balancePromises = [
-        fetchTokenBalance(provider, usdcAddress, walletAddress, "USDC").catch((error) => {
-          // Only log unexpected errors
-          if (!error?.message?.includes("timeout") &&
-            error?.code !== "CALL_EXCEPTION" &&
-            error?.code !== "UNKNOWN_ERROR") {
-            console.warn(`Failed to fetch USDC balance on chain ${chainId}:`, error);
-          }
-          return null;
-        }),
-        fetchTokenBalance(provider, usdtAddress, walletAddress, "USDT").catch((error) => {
-          // Only log unexpected errors
-          if (!error?.message?.includes("timeout") &&
-            error?.code !== "CALL_EXCEPTION" &&
-            error?.code !== "UNKNOWN_ERROR") {
-            console.warn(`Failed to fetch USDT balance on chain ${chainId}:`, error);
-          }
-          return null;
-        }),
-      ];
-
-      const [usdcBalance, usdtBalance] = await Promise.all(balancePromises);
-
-      setBalances({
-        USDC: usdcBalance,
-        USDT: usdtBalance,
-      });
-    } catch (error) {
-      console.error("Error fetching balances:", error);
-      setBalances({ USDC: null, USDT: null });
-    } finally {
-      setIsLoading(false);
-    }
-  }, [ready, authenticated, user, wallets]);
-
-  // Only refresh on initial mount when ready and authenticated
-  // All other refreshes should be manual (network switch or refresh button)
-  // Include wallets in dependencies to retry when wallet chainId becomes available
-  useEffect(() => {
-    if (ready && authenticated && user) {
-      // Small delay to ensure wallets array is populated
-      const timeoutId = setTimeout(() => {
-        fetchBalances();
-      }, 100);
-      return () => clearTimeout(timeoutId);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, authenticated, user?.id, wallets]);
-
-  const getBalance = (token: SupportedToken): TokenBalance | null => {
-    return balances[token];
-  };
-
-  // Multi-wallet functions
-  const getBalanceForWallet = (token: SupportedToken, walletAddress: string): TokenBalance | null => {
-    const normalizedAddress = walletAddress.toLowerCase();
-    return walletBalances[normalizedAddress]?.[token] || null;
-  };
-
-  const fetchBalancesForWallet = async (walletAddress: string, targetChainId?: number) => {
-    if (!ready || !authenticated || !user) {
-      return;
-    }
-
-    const normalizedAddress = walletAddress.toLowerCase();
-    setIsLoading(true);
-
-    try {
-      // Prioritize target chainId, then Privy wallet chain ID
-      let provider: ethers.Provider | null = null;
-      let chainId: number | null = targetChainId || null;
-      let usePrivyChain = false;
-
-      // Priority 1: If targetChainId is provided, use it
-      if (targetChainId) {
-        const rpcUrl = await getWorkingRpcUrl(targetChainId);
-        if (rpcUrl) {
-          try {
-            provider = new ethers.JsonRpcProvider(rpcUrl);
-          } catch (error) {
-            console.error("Failed to create RPC provider for target chain:", error);
-          }
-        }
-      }
-      // Priority 2: Get chain ID from Privy wallet
-      else if (wallets && wallets.length > 0) {
-        const wallet = wallets[0];
-        if (wallet.chainId) {
-          chainId = parseInt(wallet.chainId.split(":")[1] || wallet.chainId);
-          usePrivyChain = true;
-        }
-      }
-
-      // Priority 3: Use RPC fallback if we have chainId but no provider
-      if (!provider && chainId) {
-        const rpcUrl = await getWorkingRpcUrl(chainId);
-        if (rpcUrl) {
-          try {
-            provider = new ethers.JsonRpcProvider(rpcUrl);
-          } catch (error) {
-            console.error("Failed to create RPC provider:", error);
-          }
-        }
-      }
-
-      // If no provider or chainId, use Base as default (most common)
-      if (!provider || !chainId) {
-        chainId = 8453; // Base Mainnet
-        provider = new ethers.JsonRpcProvider("https://mainnet.base.org");
-      }
-
-      const finalChainId = chainId!;
-      const finalProvider = provider!;
-
-      // Fetch balances for this specific wallet
+      // Fetch both token balances
       const tokenPromises = (["USDC", "USDT"] as SupportedToken[]).map(async (tokenSymbol) => {
-        try {
-          const tokenAddress = getTokenAddressForChain(tokenSymbol, finalChainId);
-          if (!tokenAddress) return { token: tokenSymbol, balance: null };
+        const tokenAddress = getTokenAddressForChain(tokenSymbol, chainId);
+        if (!tokenAddress) return { token: tokenSymbol, balance: null };
 
-          const balance = await fetchTokenBalance(
-            finalProvider,
-            tokenAddress,
-            normalizedAddress,
-            tokenSymbol
-          );
+        const balance = await fetchTokenBalance(
+          provider,
+          tokenAddress,
+          walletAddress,
+          tokenSymbol,
+          chainId
+        );
 
-          return { token: tokenSymbol, balance };
-        } catch (error) {
-          return { token: tokenSymbol, balance: null };
-        }
+        return { token: tokenSymbol, balance };
       });
 
       const results = await Promise.all(tokenPromises);
-      
-      // Update wallet balances
-      const newWalletBalances = { ...walletBalances };
-      if (!newWalletBalances[normalizedAddress]) {
-        newWalletBalances[normalizedAddress] = { USDC: null, USDT: null };
-      }
-      
+
+      const newBalances: WalletBalances = { USDC: null, USDT: null };
       results.forEach(({ token, balance }) => {
-        newWalletBalances[normalizedAddress][token] = balance;
+        newBalances[token] = balance;
       });
 
-      setWalletBalances(newWalletBalances);
+      setPrivyBalances(newBalances);
+      
+    } catch (error) {
+      console.error("Error fetching Privy balances:", error);
+      setPrivyBalances({ USDC: null, USDT: null });
+    }
+  }, [ready, authenticated, user, getPrivyChainId]);
 
-      // If this is the primary wallet, also update main balances
-      const primaryWalletAddress = getWalletAddressFromPrivyUser(user);
-      if (primaryWalletAddress && normalizedAddress === primaryWalletAddress.toLowerCase()) {
-        const newBalances: Record<SupportedToken, TokenBalance | null> = { USDC: null, USDT: null };
-        results.forEach(({ token, balance }) => {
-          newBalances[token] = balance;
-        });
-        setBalances(newBalances);
-      }
+  // Fetch injected wallet balances
+  const fetchInjectedBalances = useCallback(async () => {
+    if (typeof window === 'undefined' || !window.ethereum) {
+      setInjectedBalances({ USDC: null, USDT: null });
+      return;
+    }
 
-    } catch (error: any) {
-      console.error("Error fetching wallet balances:", error);
+    try {
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+      const walletAddress = await signer.getAddress();
+      const chainId = await getInjectedChainId();
+
+      // Fetch both token balances
+      const tokenPromises = (["USDC", "USDT"] as SupportedToken[]).map(async (tokenSymbol) => {
+        const tokenAddress = getTokenAddressForChain(tokenSymbol, chainId);
+        if (!tokenAddress) return { token: tokenSymbol, balance: null };
+
+        const balance = await fetchTokenBalance(
+          provider,
+          tokenAddress,
+          walletAddress,
+          tokenSymbol,
+          chainId
+        );
+
+        return { token: tokenSymbol, balance };
+      });
+
+      const results = await Promise.all(tokenPromises);
+
+      const newBalances: WalletBalances = { USDC: null, USDT: null };
+      results.forEach(({ token, balance }) => {
+        newBalances[token] = balance;
+      });
+
+      setInjectedBalances(newBalances);
+      
+    } catch (error) {
+      console.error("Error fetching injected wallet balances:", error);
+      setInjectedBalances({ USDC: null, USDT: null });
+    }
+  }, [getInjectedChainId]);
+
+  // Combined refresh function
+  const refreshBalances = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      await Promise.all([
+        fetchPrivyBalances(),
+        fetchInjectedBalances()
+      ]);
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [fetchPrivyBalances, fetchInjectedBalances]);
+
+  // Refresh only injected balances
+  const refreshInjectedBalances = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      await fetchInjectedBalances();
+    } finally {
+      setIsLoading(false);
+    }
+  }, [fetchInjectedBalances]);
+
+  // Clear balance cache
+  const clearBalanceCache = useCallback((walletType?: 'privy' | 'injected') => {
+    if (walletType) {
+      // Clear all cache for now (can optimize later)
+      balanceCache.clear();
+    } else {
+      balanceCache.clear();
+    }
+  }, []);
+
+  // Get balance for specific token (defaults to Privy balances)
+  const getBalance = useCallback((token: SupportedToken): TokenBalance | null => {
+    return privyBalances[token];
+  }, [privyBalances]);
+
+  // Current balances (defaults to Privy)
+  const balances = privyBalances;
+
+  // Legacy support methods for existing components
+  const getBalanceForWallet = useCallback((token: SupportedToken, walletAddress: string): TokenBalance | null => {
+    // Check if this is the current Privy wallet address
+    const privyAddress = user ? getWalletAddressFromPrivyUser(user) : null;
+    if (privyAddress && walletAddress.toLowerCase() === privyAddress.toLowerCase()) {
+      return privyBalances[token];
+    }
+
+    // Otherwise assume it's an injected wallet
+    return injectedBalances[token];
+  }, [user, privyBalances, injectedBalances]);
+
+  const refreshBalancesForWallet = useCallback(async (walletAddress: string, targetChainId?: number): Promise<void> => {
+    // Check if this is the current Privy wallet address
+    const privyAddress = user ? getWalletAddressFromPrivyUser(user) : null;
+    if (privyAddress && walletAddress.toLowerCase() === privyAddress.toLowerCase()) {
+      await fetchPrivyBalances();
+    } else {
+      // Otherwise assume it's an injected wallet
+      await fetchInjectedBalances();
+    }
+  }, [user, fetchPrivyBalances, fetchInjectedBalances]);
+
+  // Legacy walletBalances structure for backward compatibility
+  const walletBalances = useMemo(() => {
+    const result: Record<string, Record<SupportedToken, TokenBalance | null>> = {};
+
+    // Add Privy wallet if available
+    const privyAddress = user ? getWalletAddressFromPrivyUser(user) : null;
+    if (privyAddress) {
+      result[privyAddress.toLowerCase()] = privyBalances;
+    }
+
+    // We don't have the injected wallet address easily available here,
+    // so we'll just return the Privy wallet for now
+    return result;
+  }, [user, privyBalances]);
+
+  // Auto-refresh on mount and wallet changes
+  useEffect(() => {
+    if (ready && authenticated && user) {
+      refreshBalances();
+    }
+  }, [ready, authenticated, user, refreshBalances]);
+
+  // Listen for network changes
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.ethereum) {
+    const handleChainChanged = (chainId: string) => {
+      const newChainId = parseInt(chainId, 16);
+        
+        // Immediately clear both wallet balances to show 0.00
+        setInjectedBalances({ USDC: null, USDT: null });
+        setPrivyBalances({ USDC: null, USDT: null });
+        
+        // Clear cache for both wallet types
+        clearBalanceCache();
+        
+        // Refresh both wallet balances for new network
+        setTimeout(async () => {
+          try {
+            await Promise.all([
+              fetchPrivyBalances(),
+              fetchInjectedBalances()
+            ]);
+          } catch (error) {
+            console.error(`[NetworkChange] ❌ Balance refresh failed:`, error);
+            // Keep balances as null if refresh fails
+          }
+        }, 300); // Reduced delay for faster refresh
+      };
+
+      window.ethereum.on('chainChanged', handleChainChanged);
+
+      return () => {
+        if (window.ethereum?.removeListener) {
+          window.ethereum.removeListener('chainChanged', handleChainChanged);
+        }
+      };
+    }
+  }, [clearBalanceCache, fetchInjectedBalances, fetchPrivyBalances]);
 
   return (
     <BalanceContext.Provider
       value={{
+        privyBalances,
+        injectedBalances,
         balances,
         isLoading,
-        refreshBalances: fetchBalances,
+        refreshBalances,
+        refreshInjectedBalances,
         getBalance,
+        clearBalanceCache,
+        // Legacy support (temporarily commented out due to TypeScript issues)
         getBalanceForWallet,
-        refreshBalancesForWallet: fetchBalancesForWallet,
+        refreshBalancesForWallet,
         walletBalances,
-      }}
+      } as BalanceContextType}
     >
       {children}
     </BalanceContext.Provider>
@@ -535,83 +487,3 @@ export const useBalance = () => {
   }
   return context;
 };
-
-// Rate limiting cache for balance requests
-const BALANCE_CACHE_TTL = 30000; // 30 seconds
-const RATE_LIMIT_BACKOFF_TTL = 60000; // 1 minute backoff after rate limit
-const MAX_CONCURRENT_REQUESTS = 3; // Limit concurrent RPC requests
-const balanceCache = new Map<string, { data: TokenBalance | null; timestamp: number; isRateLimited?: boolean }>();
-const activeRequests = new Map<string, Promise<TokenBalance | null>>();
-let activeRequestCount = 0;
-
-// Helper function to get RPC URLs with fallbacks for a chain
-function getRpcUrlsForChain(chainId: number): string[] {
-  const rpcUrls: Record<number, string[]> = {
-    // Base Mainnet - multiple fallbacks to avoid rate limiting
-    8453: [
-      "https://base.llamarpc.com",
-      "https://base.blockpi.network/v1/rpc/public",
-      "https://base-rpc.publicnode.com",
-      "https://mainnet.base.org", // Official but rate limited
-    ],
-    137: [
-      "https://polygon-rpc.com",
-      "https://polygon.llamarpc.com",
-      "https://polygon.blockpi.network/v1/rpc/public",
-    ],
-    42161: [
-      "https://arb1.arbitrum.io/rpc",
-      "https://arbitrum.llamarpc.com",
-      "https://arbitrum.blockpi.network/v1/rpc/public",
-    ],
-    43114: [
-      "https://api.avax.network/ext/bc/C/rpc",
-      "https://avalanche.public-rpc.com",
-    ],
-  };
-  return rpcUrls[chainId] || [];
-}
-
-// Helper function to get first working RPC URL for a chain
-async function getWorkingRpcUrl(chainId: number): Promise<string | null> {
-  const urls = getRpcUrlsForChain(chainId);
-  
-  if (urls.length === 0) {
-    console.error(`No RPC URLs configured for chain ${chainId}`);
-    return null;
-  }
-  
-  // Try each URL with a timeout
-  for (let i = 0; i < urls.length; i++) {
-    const url = urls[i];
-    try {
-      // Test the RPC endpoint with a simple call and short timeout
-      const provider = new ethers.JsonRpcProvider(url);
-      
-      // Quick health check with 2 second timeout
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Health check timeout')), 2000)
-      );
-      
-      await Promise.race([
-        provider.getBlockNumber(),
-        timeoutPromise
-      ]);
-      
-      // If we get here, the RPC is working
-      console.log(`Using RPC endpoint: ${url}`);
-      return url;
-    } catch (error: any) {
-      const isLastUrl = i === urls.length - 1;
-      if (isLastUrl) {
-        console.error(`All RPC endpoints failed for chain ${chainId}`);
-      } else {
-        console.warn(`RPC endpoint ${url} failed (${error?.message || error}), trying next...`);
-      }
-    }
-  }
-  
-  // Return first URL as last resort fallback
-  console.warn(`Using fallback RPC endpoint for chain ${chainId}: ${urls[0]}`);
-  return urls[0];
-}

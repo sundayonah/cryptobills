@@ -33,7 +33,7 @@ export function WalletPaymentChoice({
   disabled = false,
 }: WalletPaymentChoiceProps) {
   const { user } = usePrivy();
-  const { getBalance, getBalanceForWallet, isLoading: isLoadingBalance } = useBalance();
+  const { privyBalances, injectedBalances, isLoading: isLoadingBalance } = useBalance();
 
   // Don't show if user doesn't have multiple wallet options
   if (!user || !hasMultipleWalletOptions(user)) {
@@ -49,8 +49,8 @@ export function WalletPaymentChoice({
   }
 
   // Get balances
-  const privyBalance = getBalance(selectedToken);
-  const externalBalance = getBalanceForWallet(selectedToken, primaryExternalWallet.address);
+  const privyBalance = privyBalances[selectedToken];
+  const externalBalance = injectedBalances[selectedToken];
 
   const formatBalance = (balance: any) => {
     if (!balance) return "0.00";

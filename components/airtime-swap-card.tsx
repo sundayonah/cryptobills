@@ -25,13 +25,13 @@ import { UTILITY_CATEGORIES } from "@/lib/categories";
 import { getWalletAddressFromPrivyUser, hasMultipleWalletOptions, getPrivyWalletFromUser } from "@/lib/privy-utils";
 import { useBalance } from "@/contexts/balance-context";
 import { SUPPORTED_NETWORKS } from "@/lib/networks";
-import { 
-  getWalletChainId, 
-  waitForTransactionConfirmation, 
+import {
+  getWalletChainId,
+  waitForTransactionConfirmation,
   checkTokenBalance,
   sendExternalWalletTransaction,
   getExternalWalletProvider,
-  switchNetworkIfNeeded 
+  switchNetworkIfNeeded
 } from "@/lib/wallet-payment";
 import type { Address } from "viem";
 import { convertToNGN } from "@/lib/exchange";
@@ -76,8 +76,16 @@ export function AirtimeSwapCard() {
   const { wallets } = useWallets();
   const { sendTransaction } = useSendTransaction();
   const { toast } = useToast();
-  const { getBalance, isLoading: isLoadingBalance, refreshBalances, getBalanceForWallet, refreshBalancesForWallet } = useBalance();
-  
+  const {
+    privyBalances,
+    injectedBalances,
+    getBalance,
+    isLoading: isLoadingBalance,
+    refreshBalances,
+    refreshInjectedBalances,
+    clearBalanceCache
+  } = useBalance();
+
   // Wallet payment choice state
   const showWalletChoice = useWalletPaymentChoice(user);
   const [paymentOption, setPaymentOption] = useState<WalletPaymentOption>('privy');
@@ -153,9 +161,9 @@ export function AirtimeSwapCard() {
   const phoneNumber = watch("phoneNumber");
 
   // Get current balance for selected token (from the chosen wallet)
-  const currentBalance = paymentOption === 'external' && selectedWalletAddress
-    ? getBalanceForWallet(selectedToken, selectedWalletAddress)
-    : getBalance(selectedToken);
+  const currentBalance = paymentOption === 'external'
+    ? injectedBalances[selectedToken]
+    : privyBalances[selectedToken];
   const balanceAmount = currentBalance ? parseFloat(currentBalance.formatted) : 0;
 
   // Fetch providers based on selected category
@@ -604,21 +612,19 @@ export function AirtimeSwapCard() {
         if (privyWallet) {
           setPaymentOption('privy');
           setSelectedWalletAddress(privyWallet.address);
-          
+
           // Fetch balance for external wallets in background (debounced)
           const externalWallets = user.linkedAccounts
-            ?.filter((account: any) => 
-              account.type === 'wallet' && 
-              account.connectorType !== 'embedded' && 
+            ?.filter((account: any) =>
+              account.type === 'wallet' &&
+              account.connectorType !== 'embedded' &&
               account.address
             ) || [];
-          
-          // Stagger external wallet balance fetches to avoid rate limiting
-          externalWallets.forEach((wallet: any, index: number) => {
-            setTimeout(() => {
-              refreshBalancesForWallet(wallet.address);
-            }, index * 1000); // 1 second delay between each wallet
-          });
+
+          // Refresh injected wallet balances when switching to external wallet mode
+          setTimeout(() => {
+            refreshInjectedBalances();
+          }, 1000);
         }
       } else {
         // User has only one wallet option, use primary address
@@ -818,9 +824,9 @@ export function AirtimeSwapCard() {
     }
 
     // Validate balance for selected wallet
-    const balance = paymentOption === 'external' && selectedWalletAddress
-      ? getBalanceForWallet(data.token, selectedWalletAddress)
-      : getBalance(data.token);
+    const balance = paymentOption === 'external'
+      ? injectedBalances[data.token]
+      : privyBalances[data.token];
     const balanceAmount = balance ? parseFloat(balance.formatted) : 0;
     const inputAmount = parseFloat(data.amount);
 
@@ -920,7 +926,7 @@ export function AirtimeSwapCard() {
       let wallet = wallets.find(
         (w) => w.connectorType === 'embedded' || w.walletClientType === 'privy'
       );
-      
+
       // Fallback to first wallet if no embedded wallet found
       if (!wallet) {
         wallet = wallets[0];
@@ -933,7 +939,7 @@ export function AirtimeSwapCard() {
       // If wallet is on unsupported network, auto-switch to Base (most common for gas sponsorship)
       if (!networkInfo) {
         console.warn(`⚠️ Wallet is on unsupported network (chainId: ${chainId}), switching to Base...`);
-        
+
         // Try to switch to Base (8453) - most common network for gas sponsorship
         const baseNetwork = SUPPORTED_NETWORKS.find(n => n.id === 8453);
         if (baseNetwork && wallet.switchChain) {
@@ -941,7 +947,6 @@ export function AirtimeSwapCard() {
             await wallet.switchChain(8453);
             chainId = 8453;
             networkInfo = baseNetwork;
-            console.log('✅ Switched to Base network');
           } catch (switchError: any) {
             console.error('Failed to switch network:', switchError);
             throw new Error(
@@ -1104,7 +1109,7 @@ export function AirtimeSwapCard() {
             );
             const balanceAmount = parseFloat(balance);
             const requiredAmount = parseFloat(tokenAmountForTransfer);
-            
+
             if (balanceAmount < requiredAmount) {
               throw new Error(
                 `Insufficient balance. You have ${balance} ${data.token}, but need ${tokenAmountForTransfer} ${data.token}.`
@@ -1131,14 +1136,14 @@ export function AirtimeSwapCard() {
           },
           {
             sponsor: true,
-          } as any 
+          } as any
         );
 
         // Extract transaction hash
-        txHash = typeof txResult === 'string' 
-          ? txResult 
+        txHash = typeof txResult === 'string'
+          ? txResult
           : (txResult as any).hash || (txResult as any).transactionHash || '';
-        
+
         if (!txHash) {
           throw new Error('Failed to get transaction hash from Privy sendTransaction');
         }
@@ -1153,18 +1158,18 @@ export function AirtimeSwapCard() {
         });
 
         // Find the external wallet
-        const externalWallet = wallets.find(w => 
-          w.address.toLowerCase() === selectedWalletAddress.toLowerCase() && 
+        const externalWallet = wallets.find(w =>
+          w.address.toLowerCase() === selectedWalletAddress.toLowerCase() &&
           w.connectorType !== 'embedded'
         );
-        
+
         if (!externalWallet) {
           throw new Error('Selected external wallet not found');
         }
 
         // Get external wallet provider
         const externalProvider = await getExternalWalletProvider(externalWallet);
-        
+
         // Switch network if needed
         await switchNetworkIfNeeded(externalProvider, chainId);
 
@@ -1177,7 +1182,7 @@ export function AirtimeSwapCard() {
         );
         const balanceAmount = parseFloat(balance);
         const requiredAmount = parseFloat(tokenAmountForTransfer);
-        
+
         if (balanceAmount < requiredAmount) {
           throw new Error(
             `Insufficient balance. You have ${balance} ${data.token}, but need ${tokenAmountForTransfer} ${data.token}.`
@@ -1350,13 +1355,21 @@ export function AirtimeSwapCard() {
           });
         }
 
-        // Refresh balance after successful transaction
-        if (paymentOption === 'external' && selectedWalletAddress) {
-          // Refresh external wallet balance
-          refreshBalancesForWallet(selectedWalletAddress);
+        // Clear cache and refresh balance after successful transaction
+        if (paymentOption === 'external') {
+          // Clear cache for external wallet and refresh balance
+          clearBalanceCache('injected');
+          // Small delay to ensure blockchain state is updated
+          setTimeout(() => {
+            refreshInjectedBalances();
+          }, 1000);
         } else {
-          // Refresh Privy wallet balance
-          refreshBalances();
+          // Clear cache for Privy wallet and refresh balance
+          clearBalanceCache('privy');
+          // Small delay to ensure blockchain state is updated
+          setTimeout(() => {
+            refreshBalances();
+          }, 1000);
         }
 
         // Reset form
@@ -1767,9 +1780,9 @@ export function AirtimeSwapCard() {
                         <Loader2 className="h-3 w-3 animate-spin text-gray-400" />
                       ) : (
                         (() => {
-                          const balance = paymentOption === 'external' && selectedWalletAddress
-                            ? getBalanceForWallet(selectedToken, selectedWalletAddress)
-                            : getBalance(selectedToken);
+                          const balance = paymentOption === 'external'
+                            ? injectedBalances[selectedToken]
+                            : privyBalances[selectedToken];
                           // Always show balance, default to 0.00 if not loaded yet
                           if (balance) {
                             const balanceValue = parseFloat(balance.formatted);
@@ -1810,9 +1823,9 @@ export function AirtimeSwapCard() {
                       <Loader2 className="h-3 w-3 animate-spin text-gray-400 ml-4" />
                     ) : (
                       (() => {
-                        const balance = paymentOption === 'external' && selectedWalletAddress
-                          ? getBalanceForWallet("USDC", selectedWalletAddress)
-                          : getBalance("USDC");
+                        const balance = paymentOption === 'external'
+                          ? injectedBalances.USDC
+                          : privyBalances.USDC;
                         // Always show balance, default to 0.00 if not loaded yet
                         if (balance) {
                           const balanceValue = parseFloat(balance.formatted);
@@ -1850,9 +1863,9 @@ export function AirtimeSwapCard() {
                       <Loader2 className="h-3 w-3 animate-spin text-gray-400 ml-4" />
                     ) : (
                       (() => {
-                        const balance = paymentOption === 'external' && selectedWalletAddress
-                          ? getBalanceForWallet("USDT", selectedWalletAddress)
-                          : getBalance("USDT");
+                        const balance = paymentOption === 'external'
+                          ? injectedBalances.USDT
+                          : privyBalances.USDT;
                         // Always show balance, default to 0.00 if not loaded yet
                         if (balance) {
                           const balanceValue = parseFloat(balance.formatted);
@@ -1886,12 +1899,12 @@ export function AirtimeSwapCard() {
               onOptionChange={(option, walletAddress) => {
                 setPaymentOption(option);
                 setSelectedWalletAddress(walletAddress);
-                
+
                 // Refresh balance for selected wallet if it's external (debounced)
                 if (option === 'external') {
                   // Add a small delay to avoid rapid requests when switching
                   setTimeout(() => {
-                    refreshBalancesForWallet(walletAddress);
+                    refreshInjectedBalances();
                   }, 500);
                 }
               }}
