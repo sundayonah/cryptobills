@@ -16,6 +16,39 @@ export interface Network {
 
 export const SUPPORTED_NETWORKS: Network[] = [
   {
+    id: 8453,
+    name: 'Base',
+    chainId: 'eip155:8453',
+    nativeCurrency: {
+      name: 'Ether',
+      symbol: 'ETH',
+      decimals: 18,
+    },
+    rpcUrl: 'https://base-mainnet.g.alchemy.com/v2/f9VLG4qggmoQThJmgLuSA',
+  },
+  {
+    id: 137,
+    name: 'Polygon',
+    chainId: 'eip155:137',
+    nativeCurrency: {
+      name: 'MATIC',
+      symbol: 'MATIC',
+      decimals: 18,
+    },
+    rpcUrl: 'https://polygon-mainnet.g.alchemy.com/v2/f9VLG4qggmoQThJmgLuSA',
+  },
+  {
+    id: 42161,
+    name: 'Arbitrum',
+    chainId: 'eip155:42161',
+    nativeCurrency: {
+      name: 'Ether',
+      symbol: 'ETH',
+      decimals: 18,
+    },
+    rpcUrl: 'https://arb-mainnet.g.alchemy.com/v2/f9VLG4qggmoQThJmgLuSA',
+  },
+  {
     id: 43114,
     name: 'Avalanche',
     chainId: 'eip155:43114',
@@ -24,7 +57,7 @@ export const SUPPORTED_NETWORKS: Network[] = [
       symbol: 'AVAX',
       decimals: 18,
     },
-    rpcUrl: 'https://api.avax.network/ext/bc/C/rpc',
+    rpcUrl: 'https://avax-mainnet.g.alchemy.com/v2/f9VLG4qggmoQThJmgLuSA',
   },
   // {
   //   id: 1,
@@ -37,40 +70,7 @@ export const SUPPORTED_NETWORKS: Network[] = [
   //   },
   //   rpcUrl: 'https://eth-mainnet.g.alchemy.com/v2/',
   // },
-  {
-    id: 137,
-    name: 'Polygon',
-    chainId: 'eip155:137',
-    nativeCurrency: {
-      name: 'MATIC',
-      symbol: 'MATIC',
-      decimals: 18,
-    },
-    rpcUrl: 'https://polygon-rpc.com',
-  },
-  {
-    id: 42161,
-    name: 'Arbitrum',
-    chainId: 'eip155:42161',
-    nativeCurrency: {
-      name: 'Ether',
-      symbol: 'ETH',
-      decimals: 18,
-    },
-    rpcUrl: 'https://arb1.arbitrum.io/rpc',
-  },
-  {
-    id: 8453,
-    name: 'Base',
-    chainId: 'eip155:8453',
-    nativeCurrency: {
-      name: 'Ether',
-      symbol: 'ETH',
-      decimals: 18,
-    },
-    rpcUrl: 'https://mainnet.base.org',
-  },
- 
+
   // Base Sepolia commented out - testnet not needed in production
   // {
   //   id: 84532,

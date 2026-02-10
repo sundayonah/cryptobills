@@ -117,9 +117,6 @@ export async function POST(request: NextRequest) {
             data: updateData,
         });
 
-        // Log webhook processing
-        console.log(`Webhook processed: Transaction ${transaction.id} status updated to ${dbStatus}`);
-
         // Return 200 to acknowledge receipt (PayBeta expects 200 for successful webhook processing)
         return NextResponse.json({
             success: true,

@@ -48,18 +48,47 @@ export function TransactionHistoryDrawer({ isOpen, onClose }: TransactionHistory
     const fetchTransactions = useCallback(async () => {
         if (!user) return;
 
-        const walletAddress = getWalletAddressFromPrivyUser(user);
-        if (!walletAddress) return;
+        // Get all wallet addresses associated with the user (Privy + external)
+        const walletAddresses: string[] = [];
+        
+        // Add Privy wallet address
+        const privyWalletAddress = getWalletAddressFromPrivyUser(user);
+        if (privyWalletAddress) {
+            walletAddresses.push(privyWalletAddress);
+        }
+        
+        // Add external wallet addresses
+        const externalWallets = user.linkedAccounts?.filter((account: any) =>
+            account.type === 'wallet' &&
+            account.connectorType !== 'embedded' &&
+            (account as any).address
+        ) || [];
+        
+        for (const wallet of externalWallets) {
+            walletAddresses.push((wallet as any).address);
+        }
+        
+        if (walletAddresses.length === 0) return;
 
         setLoading(true);
         try {
-            const response = await fetch(`/api/transactions?walletAddress=${walletAddress}&limit=50`);
-            if (response.ok) {
-                const data = await response.json();
-                setTransactions(data.transactions || []);
-            } else {
-                console.error("Failed to fetch transactions");
+            // Fetch transactions for all wallet addresses
+            const allTransactions: Transaction[] = [];
+            
+            for (const walletAddress of walletAddresses) {
+                const response = await fetch(`/api/transactions?walletAddress=${walletAddress}&limit=50`);
+                if (response.ok) {
+                    const data = await response.json();
+                    allTransactions.push(...(data.transactions || []));
+                }
             }
+            
+            // Remove duplicates and sort by creation date
+            const uniqueTransactions = Array.from(
+                new Map(allTransactions.map(tx => [tx.id, tx])).values()
+            ).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+            
+            setTransactions(uniqueTransactions);
         } catch (error) {
             console.error("Error fetching transactions:", error);
         } finally {

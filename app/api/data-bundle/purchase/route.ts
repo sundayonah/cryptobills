@@ -153,6 +153,8 @@ export async function POST(request: NextRequest) {
                 data: {
                     status: 'completed',
                     paybetaTransactionId: paymentResponse.data?.transactionId,
+                    chargedAmount: paymentResponse.data?.chargedAmount || null,
+                    commission: paymentResponse.data?.commission || null,
                     completedAt: new Date(),
                 },
             });
@@ -188,12 +190,15 @@ export async function POST(request: NextRequest) {
                 },
             });
         } else {
-            // Transaction failed
+            // Transaction failed - mark for auto-refund
             await prisma.transaction.update({
                 where: { id: transaction.id },
                 data: {
-                    status: 'failed',
+                    status: 'refund_pending',
                     errorMessage: paymentResponse.message || 'PayBeta purchase failed',
+                    refundStatus: 'pending',
+                    refundReason: paymentResponse.message || 'PayBeta purchase failed',
+                    refundRequestedAt: new Date(),
                 },
             });
 
