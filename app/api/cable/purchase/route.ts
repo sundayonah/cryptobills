@@ -130,14 +130,54 @@ export async function POST(request: NextRequest) {
             where: { walletAddress: normalizedWalletAddress },
         });
 
-        if (!user) {
-            user = await prisma.user.create({
-                data: {
-                    walletAddress: normalizedWalletAddress,
-                    privyUserId: validated.privyUserId,
-                },
+        // If not found by wallet address, try to find by privyUserId (if provided)
+        if (!user && validated.privyUserId) {
+            user = await prisma.user.findUnique({
+                where: { privyUserId: validated.privyUserId },
             });
+
+            // If found by privyUserId but wallet address is different, update the wallet address
+            if (user && user.walletAddress !== normalizedWalletAddress) {
+                user = await prisma.user.update({
+                    where: { id: user.id },
+                    data: { walletAddress: normalizedWalletAddress },
+                });
+            }
+        }
+
+        // If still not found, create new user
+        if (!user) {
+            // First try to find if user exists with privyUserId to avoid unique constraint violation
+            if (validated.privyUserId) {
+                const existingUserByPrivyId = await prisma.user.findUnique({
+                    where: { privyUserId: validated.privyUserId },
+                });
+
+                if (existingUserByPrivyId) {
+                    // User exists with this privyUserId, update wallet address
+                    user = await prisma.user.update({
+                        where: { id: existingUserByPrivyId.id },
+                        data: { walletAddress: normalizedWalletAddress },
+                    });
+                } else {
+                    // No user exists, create new one
+                    user = await prisma.user.create({
+                        data: {
+                            walletAddress: normalizedWalletAddress,
+                            privyUserId: validated.privyUserId,
+                        },
+                    });
+                }
+            } else {
+                // No privyUserId provided, just create with wallet address
+                user = await prisma.user.create({
+                    data: {
+                        walletAddress: normalizedWalletAddress,
+                    },
+                });
+            }
         } else if (validated.privyUserId && !user.privyUserId) {
+            // Update existing user with privyUserId if not already set
             user = await prisma.user.update({
                 where: { id: user.id },
                 data: { privyUserId: validated.privyUserId },
