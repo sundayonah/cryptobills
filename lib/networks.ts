@@ -26,39 +26,42 @@ export const SUPPORTED_NETWORKS: Network[] = [
     },
     rpcUrl: 'https://base-mainnet.g.alchemy.com/v2/f9VLG4qggmoQThJmgLuSA',
   },
-  {
-    id: 137,
-    name: 'Polygon',
-    chainId: 'eip155:137',
-    nativeCurrency: {
-      name: 'MATIC',
-      symbol: 'MATIC',
-      decimals: 18,
-    },
-    rpcUrl: 'https://polygon-mainnet.g.alchemy.com/v2/f9VLG4qggmoQThJmgLuSA',
-  },
-  {
-    id: 42161,
-    name: 'Arbitrum',
-    chainId: 'eip155:42161',
-    nativeCurrency: {
-      name: 'Ether',
-      symbol: 'ETH',
-      decimals: 18,
-    },
-    rpcUrl: 'https://arb-mainnet.g.alchemy.com/v2/f9VLG4qggmoQThJmgLuSA',
-  },
-  {
-    id: 43114,
-    name: 'Avalanche',
-    chainId: 'eip155:43114',
-    nativeCurrency: {
-      name: 'Avalanche',
-      symbol: 'AVAX',
-      decimals: 18,
-    },
-    rpcUrl: 'https://avax-mainnet.g.alchemy.com/v2/f9VLG4qggmoQThJmgLuSA',
-  },
+  // Polygon temporarily disabled
+  // {
+  //   id: 137,
+  //   name: 'Polygon',
+  //   chainId: 'eip155:137',
+  //   nativeCurrency: {
+  //     name: 'MATIC',
+  //     symbol: 'MATIC',
+  //     decimals: 18,
+  //   },
+  //   rpcUrl: 'https://polygon-mainnet.g.alchemy.com/v2/f9VLG4qggmoQThJmgLuSA',
+  // },
+  // Arbitrum temporarily disabled
+  // {
+  //   id: 42161,
+  //   name: 'Arbitrum',
+  //   chainId: 'eip155:42161',
+  //   nativeCurrency: {
+  //     name: 'Ether',
+  //     symbol: 'ETH',
+  //     decimals: 18,
+  //   },
+  //   rpcUrl: 'https://arb-mainnet.g.alchemy.com/v2/f9VLG4qggmoQThJmgLuSA',
+  // },
+  // Avalanche temporarily disabled
+  // {
+  //   id: 43114,
+  //   name: 'Avalanche',
+  //   chainId: 'eip155:43114',
+  //   nativeCurrency: {
+  //     name: 'Avalanche',
+  //     symbol: 'AVAX',
+  //     decimals: 18,
+  //   },
+  //   rpcUrl: 'https://avax-mainnet.g.alchemy.com/v2/f9VLG4qggmoQThJmgLuSA',
+  // },
   // {
   //   id: 1,
   //   name: 'Ethereum',

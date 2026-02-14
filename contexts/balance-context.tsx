@@ -13,6 +13,7 @@ import { useWallets } from "@privy-io/react-auth";
 import { ethers } from "ethers";
 import { getWalletAddressFromPrivyUser } from "@/lib/privy-utils";
 import { getTokenAddressForChain } from "@/lib/token-utils";
+import { useSelectedNetwork } from "@/contexts/selected-network-context";
 
 export type SupportedToken = "USDC" | "USDT";
 
@@ -36,7 +37,7 @@ interface BalanceContextType {
   // Current wallet balances based on payment option
   balances: WalletBalances;
   isLoading: boolean;
-  refreshBalances: () => Promise<void>;
+  refreshBalances: (chainId?: number) => Promise<void>;
   refreshInjectedBalances: () => Promise<void>;
   getBalance: (token: SupportedToken) => TokenBalance | null;
   clearBalanceCache: (walletType?: 'privy' | 'injected') => void;
@@ -52,10 +53,10 @@ const ERC20_ABI = [
 
 // Supported chain IDs
 const SUPPORTED_CHAIN_IDS = [
-  8453,   // Base Mainnet
-  137,    // Polygon Mainnet
-  42161,  // Arbitrum Mainnet
-  43114,  // Avalanche C-Chain Mainnet
+  8453,   // Base Mainnet only
+  // 137,    // Polygon Mainnet (disabled)
+  // 42161,  // Arbitrum Mainnet (disabled)
+  // 43114,  // Avalanche C-Chain Mainnet (disabled)
 ];
 
 // RPC URLs for each chain - using Alchemy as primary with fallbacks
@@ -186,6 +187,7 @@ async function getWorkingRpcUrl(chainId: number): Promise<string | null> {
 export function BalanceProvider({ children }: { children: ReactNode }) {
   const { ready, authenticated, user } = usePrivy();
   const { wallets } = useWallets();
+  const { chainId: selectedChainId } = useSelectedNetwork();
 
   const [privyBalances, setPrivyBalances] = useState<WalletBalances>({
     USDC: null,
@@ -199,23 +201,56 @@ export function BalanceProvider({ children }: { children: ReactNode }) {
 
   const [isLoading, setIsLoading] = useState(false);
 
-  // Get Privy wallet chain ID - follows the current network selection
-  const getPrivyChainId = useCallback(async (): Promise<number> => {
-    // Make Privy wallet balance fetch dynamic based on current network
-    // This allows showing 0 balance on networks where Privy has no funds
-    if (typeof window === 'undefined' || !window.ethereum) return 8453;
+  // Derive Privy wallet's chain ID from wallets (sync) so we can re-fetch when it changes (e.g. after refresh when Privy hydrates)
+  const privyWalletChainId = useMemo(() => {
+    const privyWallet = wallets?.find(
+      (w) => w.connectorType === "embedded" || w.walletClientType === "privy"
+    );
+    if (!privyWallet?.chainId) return null;
+    const chainIdStr =
+      typeof privyWallet.chainId === "string"
+        ? privyWallet.chainId
+        : String(privyWallet.chainId);
+    const chainId = chainIdStr.includes(":")
+      ? parseInt(chainIdStr.split(":")[1], 10)
+      : parseInt(chainIdStr, 10);
+    if (isNaN(chainId) || !SUPPORTED_CHAIN_IDS.includes(chainId)) return null;
+    return chainId;
+  }, [wallets]);
 
+  // Get Privy wallet chain ID - use Privy wallet's chain so balance follows the app's network dropdown
+  const getPrivyChainId = useCallback(async (): Promise<number> => {
+    // Prefer the Privy (embedded) wallet's current chain so selecting Arbitrum shows Arbitrum balance
+    const privyWallet = wallets?.find(
+      (w) => w.connectorType === "embedded" || w.walletClientType === "privy"
+    );
+    if (privyWallet?.chainId) {
+      const chainIdStr =
+        typeof privyWallet.chainId === "string"
+          ? privyWallet.chainId
+          : String(privyWallet.chainId);
+      const chainId = chainIdStr.includes(":")
+        ? parseInt(chainIdStr.split(":")[1], 10)
+        : parseInt(chainIdStr, 10);
+      if (!isNaN(chainId) && SUPPORTED_CHAIN_IDS.includes(chainId)) {
+        return chainId;
+      }
+    }
+    // Fallback: window.ethereum when no Privy wallet or chain not yet updated
+    if (typeof window === "undefined" || !window.ethereum) return 8453;
     try {
       const provider = new ethers.BrowserProvider(window.ethereum);
       const network = await provider.getNetwork();
       const chainId = Number(network.chainId);
-
       return SUPPORTED_CHAIN_IDS.includes(chainId) ? chainId : 8453;
     } catch (error) {
-      console.warn("Failed to get current network for Privy, defaulting to Base:", error);
+      console.warn(
+        "Failed to get current network for Privy, defaulting to Base:",
+        error
+      );
       return 8453;
     }
-  }, []);
+  }, [wallets]);
 
   // Note: Both Privy and injected wallets now follow the current network selection
   // This allows showing network-specific balances for both wallet types
@@ -236,8 +271,8 @@ export function BalanceProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // Fetch Privy wallet balances
-  const fetchPrivyBalances = useCallback(async () => {
+  // Fetch Privy wallet balances (use overrideChainId when switching network so we show the selected chain, not the lagging wallet state)
+  const fetchPrivyBalances = useCallback(async (overrideChainId?: number) => {
     if (!ready || !authenticated || !user) {
       setPrivyBalances({ USDC: null, USDT: null });
       return;
@@ -250,7 +285,9 @@ export function BalanceProvider({ children }: { children: ReactNode }) {
     }
 
     try {
-      const chainId = await getPrivyChainId();
+      // Use the selected network's chain ID from context, or override if provided
+      const chainId = overrideChainId ?? selectedChainId;
+
       const rpcUrl = await getWorkingRpcUrl(chainId);
 
       if (!rpcUrl) {
@@ -284,12 +321,12 @@ export function BalanceProvider({ children }: { children: ReactNode }) {
       });
 
       setPrivyBalances(newBalances);
-      
+
     } catch (error) {
       console.error("Error fetching Privy balances:", error);
       setPrivyBalances({ USDC: null, USDT: null });
     }
-  }, [ready, authenticated, user, getPrivyChainId]);
+  }, [ready, authenticated, user, selectedChainId]);
 
   // Fetch injected wallet balances
   const fetchInjectedBalances = useCallback(async () => {
@@ -299,10 +336,25 @@ export function BalanceProvider({ children }: { children: ReactNode }) {
     }
 
     try {
-      const provider = new ethers.BrowserProvider(window.ethereum);
-      const signer = await provider.getSigner();
+      // Get wallet address from the connected injected wallet
+      const browserProvider = new ethers.BrowserProvider(window.ethereum);
+      const signer = await browserProvider.getSigner();
       const walletAddress = await signer.getAddress();
-      const chainId = await getInjectedChainId();
+
+      // Use the selected network's chain ID from context
+      const chainId = selectedChainId;
+
+      // Use RPC provider for the selected chain (not the wallet's current chain)
+      // This allows us to show balance for the selected network even if wallet is on a different chain
+      const rpcUrl = await getWorkingRpcUrl(chainId);
+
+      if (!rpcUrl) {
+        console.error(`No RPC URL available for injected wallet on chain ${chainId}`);
+        setInjectedBalances({ USDC: null, USDT: null });
+        return;
+      }
+
+      const provider = new ethers.JsonRpcProvider(rpcUrl);
 
       // Fetch both token balances
       const tokenPromises = (["USDC", "USDT"] as SupportedToken[]).map(async (tokenSymbol) => {
@@ -328,19 +380,19 @@ export function BalanceProvider({ children }: { children: ReactNode }) {
       });
 
       setInjectedBalances(newBalances);
-      
+
     } catch (error) {
       console.error("Error fetching injected wallet balances:", error);
       setInjectedBalances({ USDC: null, USDT: null });
     }
-  }, [getInjectedChainId]);
+  }, [selectedChainId]);
 
-  // Combined refresh function
-  const refreshBalances = useCallback(async () => {
+  // Combined refresh function (pass chainId when switching network so balance matches selected chain immediately)
+  const refreshBalances = useCallback(async (chainId?: number) => {
     setIsLoading(true);
     try {
       await Promise.all([
-        fetchPrivyBalances(),
+        fetchPrivyBalances(chainId),
         fetchInjectedBalances()
       ]);
     } finally {
@@ -421,19 +473,40 @@ export function BalanceProvider({ children }: { children: ReactNode }) {
     }
   }, [ready, authenticated, user, refreshBalances]);
 
+  // Re-fetch Privy balances when the Privy wallet's chain changes (e.g. after refresh when Privy hydrates with the real chain)
+  useEffect(() => {
+    if (ready && authenticated && user && privyWalletChainId != null) {
+      fetchPrivyBalances();
+    }
+  }, [privyWalletChainId, ready, authenticated, user, fetchPrivyBalances]);
+
+  // Refresh balances when selected network changes
+  useEffect(() => {
+    if (ready && authenticated && user && selectedChainId) {
+      // Clear balances immediately to show 0.00 while loading
+      setPrivyBalances({ USDC: null, USDT: null });
+      setInjectedBalances({ USDC: null, USDT: null });
+      clearBalanceCache();
+
+      // Fetch balances for the selected network
+      fetchPrivyBalances(selectedChainId);
+      fetchInjectedBalances();
+    }
+  }, [selectedChainId, ready, authenticated, user, clearBalanceCache, fetchPrivyBalances, fetchInjectedBalances]);
+
   // Listen for network changes
   useEffect(() => {
     if (typeof window !== 'undefined' && window.ethereum) {
-    const handleChainChanged = (chainId: string) => {
-      const newChainId = parseInt(chainId, 16);
-        
+      const handleChainChanged = (chainId: string) => {
+        const newChainId = parseInt(chainId, 16);
+
         // Immediately clear both wallet balances to show 0.00
         setInjectedBalances({ USDC: null, USDT: null });
         setPrivyBalances({ USDC: null, USDT: null });
-        
+
         // Clear cache for both wallet types
         clearBalanceCache();
-        
+
         // Refresh both wallet balances for new network
         setTimeout(async () => {
           try {

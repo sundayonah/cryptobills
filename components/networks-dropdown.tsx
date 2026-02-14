@@ -11,6 +11,7 @@ import {
 import { SUPPORTED_NETWORKS, type Network } from "@/lib/networks";
 import { useWallets } from "@privy-io/react-auth";
 import { useBalance } from "@/contexts/balance-context";
+import { useSelectedNetwork } from "@/contexts/selected-network-context";
 import { motion } from "framer-motion";
 import { getNetworkLogoPath } from "@/lib/network-utils";
 import Image from "next/image";
@@ -28,12 +29,13 @@ function getBlockExplorerUrls(chainId: number): string[] {
 
 export function NetworksDropdown() {
   const { wallets } = useWallets();
-  const { refreshBalances } = useBalance();
+  const { refreshBalances, clearBalanceCache } = useBalance();
+  const { setChainId } = useSelectedNetwork();
   const [selectedNetwork, setSelectedNetwork] = useState<Network>(
     SUPPORTED_NETWORKS[0] // Default to first network (Base)
   );
 
-  // Get the current network from the connected wallet
+  // Sync selected network from wallet and keep context in sync (so payment flow uses same chain as UI)
   useEffect(() => {
     if (wallets && wallets.length > 0) {
       const wallet = wallets[0];
@@ -43,17 +45,19 @@ export function NetworksDropdown() {
         );
         if (network) {
           setSelectedNetwork(network);
+          setChainId(network.id);
         }
       }
     }
-  }, [wallets]);
+  }, [wallets, setChainId]);
 
   const handleNetworkChange = async (networkId: string) => {
     const network = SUPPORTED_NETWORKS.find((n) => n.id.toString() === networkId);
     if (!network) return;
 
-    // Optimistically update UI
+    // Optimistically update UI and context so payment flow uses this chain immediately
     setSelectedNetwork(network);
+    setChainId(network.id);
 
     let switched = false;
 
@@ -156,14 +160,10 @@ export function NetworksDropdown() {
       }
     }
 
-    // Refresh balances after network switch
-    // Pass target chainId directly to avoid race conditions with wallet state updates
+    // Refresh balances for the selected network immediately (pass network.id so we show the correct chain's balance, not the previous one)
     if (switched) {
-      // Use a delay to ensure the switch operation has completed
-      // Refresh balances after network switch
-      setTimeout(() => {
-        refreshBalances();
-      }, 1000); // Increased delay to ensure chain switch completes
+      clearBalanceCache();
+      refreshBalances(network.id);
     }
   };
 

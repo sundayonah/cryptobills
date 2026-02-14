@@ -24,6 +24,7 @@ import { processProviders } from "@/lib/providers";
 import { UTILITY_CATEGORIES } from "@/lib/categories";
 import { getWalletAddressFromPrivyUser, hasMultipleWalletOptions, getPrivyWalletFromUser } from "@/lib/privy-utils";
 import { useBalance } from "@/contexts/balance-context";
+import { useSelectedNetwork } from "@/contexts/selected-network-context";
 import { SUPPORTED_NETWORKS } from "@/lib/networks";
 import {
   getWalletChainId,
@@ -85,6 +86,7 @@ export function AirtimeSwapCard() {
     refreshInjectedBalances,
     clearBalanceCache
   } = useBalance();
+  const { chainId: selectedChainId } = useSelectedNetwork();
 
   // Wallet payment choice state
   const showWalletChoice = useWalletPaymentChoice(user);
@@ -932,32 +934,42 @@ export function AirtimeSwapCard() {
         wallet = wallets[0];
       }
 
-      // Get current network chain ID from wallet
-      let chainId = getWalletChainId(wallet);
+      // Use the selected network from the dropdown (same as balance) so tx and UI never mismatch
+      let chainId = selectedChainId;
       let networkInfo = SUPPORTED_NETWORKS.find(n => n.id === chainId);
-
-      // If wallet is on unsupported network, auto-switch to Base (most common for gas sponsorship)
       if (!networkInfo) {
-        console.warn(`⚠️ Wallet is on unsupported network (chainId: ${chainId}), switching to Base...`);
+        chainId = 8453;
+        networkInfo = SUPPORTED_NETWORKS.find(n => n.id === 8453)!;
+      }
 
-        // Try to switch to Base (8453) - most common network for gas sponsorship
-        const baseNetwork = SUPPORTED_NETWORKS.find(n => n.id === 8453);
-        if (baseNetwork && wallet.switchChain) {
-          try {
-            await wallet.switchChain(8453);
-            chainId = 8453;
-            networkInfo = baseNetwork;
-          } catch (switchError: any) {
-            console.error('Failed to switch network:', switchError);
-            throw new Error(
-              `Unsupported network (chainId: ${chainId}). ` +
-              `Please switch to one of: ${SUPPORTED_NETWORKS.map(n => n.name).join(', ')}`
-            );
+      // Ensure wallet is on the selected chain before sending (avoids UserOperation revert from wrong chain)
+      const walletChainId = getWalletChainId(wallet);
+      if (walletChainId !== chainId && wallet.switchChain) {
+        toast({
+          title: "Switching Network",
+          description: `Switching to ${networkInfo?.name}...`,
+        });
+
+        try {
+          await wallet.switchChain(chainId);
+
+          // Wait a moment for the wallet to fully sync after switching
+          await new Promise(resolve => setTimeout(resolve, 1500));
+
+          // Verify the switch was successful
+          const newChainId = getWalletChainId(wallet);
+          if (newChainId !== chainId) {
+            throw new Error(`Network switch incomplete. Expected ${networkInfo?.name} (${chainId}), but wallet is on chain ${newChainId}`);
           }
-        } else {
+
+          toast({
+            title: "Network Switched",
+            description: `Successfully switched to ${networkInfo?.name}`,
+          });
+        } catch (switchError: any) {
+          console.error('Failed to switch wallet to selected network:', switchError);
           throw new Error(
-            `Unsupported network (chainId: ${chainId}). ` +
-            `Please switch to one of: ${SUPPORTED_NETWORKS.map(n => n.name).join(', ')}`
+            `Could not switch to ${networkInfo?.name ?? 'selected network'}. Please try again.`
           );
         }
       }

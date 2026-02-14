@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { PrivyProvider } from "@/components/privy-provider";
 import { BalanceProvider } from "@/contexts/balance-context";
+import { SelectedNetworkProvider } from "@/contexts/selected-network-context";
 import { Toaster } from "@/components/ui/toaster";
 
 const inter = Inter({ subsets: ["latin"] });
@@ -21,10 +22,12 @@ export default function RootLayout({
     <html lang="en">
       <body className={inter.className}>
         <PrivyProvider>
-          <BalanceProvider>
-            {children}
-            <Toaster />
-          </BalanceProvider>
+          <SelectedNetworkProvider>
+            <BalanceProvider>
+              {children}
+              <Toaster />
+            </BalanceProvider>
+          </SelectedNetworkProvider>
         </PrivyProvider>
       </body>
     </html>
