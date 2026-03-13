@@ -43,6 +43,7 @@ import { getTokenLogoPath } from "@/lib/network-utils";
 import { Loading, LoadingSpinner, AirtimeFormSkeleton } from "@/components/ui/loading";
 import { WalletPaymentChoice, useWalletPaymentChoice, type WalletPaymentOption } from "@/components/wallet-payment-choice";
 import Image from "next/image";
+import { isAddress } from "viem";
 
 const airtimeSchema = z.object({
   token: z.enum(["USDC", "USDT"]),
@@ -58,7 +59,8 @@ const airtimeSchema = z.object({
     },
     { message: "Please enter a valid amount" }
   ),
-  phoneNumber: z.string().min(1, "Account/Phone number is required"),
+  phoneNumber: z.string().optional(), // Optional for transfer
+  recipientAddress: z.string().optional(), // For transfer type
   service: z.string().min(1, "Service is required"), // Allow any string for flexibility (airtime, data, electricity, etc.)
   bundleCode: z.string().optional(), // Required for data bundle
   meterType: z.enum(["prepaid", "postpaid"]).optional(), // Required for electricity
@@ -72,7 +74,11 @@ interface ExchangeRate {
   timestamp: number;
 }
 
-export function AirtimeSwapCard() {
+interface AirtimeSwapCardProps {
+  initialCategory?: UtilityBillCategory;
+}
+
+export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCardProps = {}) {
   const { ready, authenticated, user, login, connectWallet } = usePrivy();
   const { wallets } = useWallets();
   const { sendTransaction } = useSendTransaction();
@@ -98,7 +104,7 @@ export function AirtimeSwapCard() {
   const [calculatedTokenAmount, setCalculatedTokenAmount] = useState<number | null>(null); // Token amount calculated from NGN for airtime
   const [providers, setProviders] = useState<Array<AirtimeProvider & { service: AirtimeService | DataBundleService | string }>>([]);
   const [loadingProviders, setLoadingProviders] = useState(true);
-  const [selectedCategory, setSelectedCategory] = useState<UtilityBillCategory>("airtime");
+  const [selectedCategory, setSelectedCategory] = useState<UtilityBillCategory>(initialCategory);
   const [bundles, setBundles] = useState<DataBundlePackage[]>([]);
   const [loadingBundles, setLoadingBundles] = useState(false);
   const [selectedBundle, setSelectedBundle] = useState<string>("");
@@ -154,6 +160,8 @@ export function AirtimeSwapCard() {
       amount: "",
       service: "mtn_vtu",
       bundleCode: "",
+      phoneNumber: "",
+      recipientAddress: "",
     },
   });
 
@@ -161,6 +169,7 @@ export function AirtimeSwapCard() {
   const selectedAmount = watch("amount");
   const selectedService = watch("service");
   const phoneNumber = watch("phoneNumber");
+  const recipientAddress = watch("recipientAddress");
 
   // Get current balance for selected token (from the chosen wallet)
   const currentBalance = paymentOption === 'external'
@@ -760,7 +769,7 @@ export function AirtimeSwapCard() {
     }
 
     // Validate phone number for airtime and data bundle
-    if ((selectedCategory === "airtime" || selectedCategory === "data_bundle") && !/^0\d{10}$/.test(data.phoneNumber)) {
+    if (selectedCategory !== "transfer" && (selectedCategory === "airtime" || selectedCategory === "data_bundle") && !/^0\d{10}$/.test(data.phoneNumber ?? "")) {
       toast({
         title: "Invalid Phone Number",
         description: "Please enter a valid Nigerian phone number (e.g., 08123456789)",
@@ -975,6 +984,133 @@ export function AirtimeSwapCard() {
       }
 
       // ============================================
+      // HANDLE TRANSFER CATEGORY (SKIP EXCHANGE RATE & PAYBETA)
+      // ============================================
+      
+      if (selectedCategory === 'transfer') {
+        // For transfers, we skip exchange rate and PayBeta checks
+        // User enters token amount directly, not NGN
+        
+        // Validate recipient address
+        if (!data.recipientAddress || !isAddress(data.recipientAddress)) {
+          throw new Error('Please enter a valid recipient address');
+        }
+        
+        // Validate amount
+        if (!data.amount || parseFloat(data.amount) <= 0) {
+          throw new Error('Please enter a valid amount');
+        }
+        
+        // Get token configuration for the chain
+        const tokenConfig = getTokenConfigForChain(data.token, chainId);
+        if (!tokenConfig) {
+          throw new Error(`Token ${data.token} is not supported on chain ${chainId}`);
+        }
+
+        const tokenAddress = tokenConfig.address as Address;
+        const decimals = tokenConfig.decimals;
+        const recipientAddress = data.recipientAddress as Address;
+        const tokenAmountForTransfer = data.amount;
+
+        toast({
+          title: "Processing Transfer",
+          description: `Sending ${tokenAmountForTransfer} ${data.token}...`,
+        });
+
+        // Check balance
+        const balance = getBalance(data.token);
+        if (balance) {
+          const balanceAmount = parseFloat(balance.formatted);
+          const requiredAmount = parseFloat(tokenAmountForTransfer);
+
+          if (balanceAmount < requiredAmount) {
+            throw new Error(
+              `Insufficient balance. You have ${balance.formatted} ${data.token}, but need ${tokenAmountForTransfer} ${data.token}.`
+            );
+          }
+        }
+
+        // Encode ERC20 transfer
+        const transferData = encodeFunctionData({
+          abi: erc20Abi,
+          functionName: 'transfer',
+          args: [recipientAddress, parseUnits(tokenAmountForTransfer, decimals)],
+        });
+
+        let txHash: string;
+
+        if (paymentOption === 'privy') {
+          // Privy wallet payment with gas sponsorship
+          const txResult = await sendTransaction(
+            {
+              to: tokenAddress,
+              data: transferData,
+              value: '0x0',
+            },
+            {
+              sponsor: true,
+            } as any
+          );
+
+          txHash = typeof txResult === 'string'
+            ? txResult
+            : (txResult as any).hash || (txResult as any).transactionHash || '';
+
+          if (!txHash) {
+            throw new Error('Failed to get transaction hash');
+          }
+        } else {
+          // External wallet payment (user pays gas)
+          const externalWallet = wallets.find(w =>
+            w.address.toLowerCase() === selectedWalletAddress.toLowerCase() &&
+            w.connectorType !== 'embedded'
+          );
+
+          if (!externalWallet) {
+            throw new Error('External wallet not found');
+          }
+
+          const provider = await externalWallet.getEthereumProvider();
+          const ethersProvider = new ethers.BrowserProvider(provider);
+          const signer = await ethersProvider.getSigner();
+
+          const tx = await signer.sendTransaction({
+            to: tokenAddress,
+            data: transferData,
+            value: BigInt(0),
+          });
+
+          txHash = tx.hash;
+        }
+
+        toast({
+          title: "Transfer Submitted",
+          description: "Waiting for confirmation...",
+        });
+
+        // Wait for confirmation
+        const receipt = await waitForTransactionConfirmation(txHash as `0x${string}`, chainId);
+
+        if (receipt && (receipt as any).status === 0) {
+          throw new Error('Transaction failed');
+        }
+
+        toast({
+          title: "Transfer Successful!",
+          description: `${tokenAmountForTransfer} ${data.token} sent successfully`,
+        });
+
+        // Refresh balances
+        await refreshBalances();
+        await refreshInjectedBalances();
+
+        // Show success and return
+        setIsProcessing(false);
+        
+        return;
+      }
+
+      // ============================================
       // STEP 3: VALIDATE EXCHANGE RATE API (BEFORE TRANSFER)
       // ============================================
 
@@ -1145,6 +1281,7 @@ export function AirtimeSwapCard() {
             to: tokenAddress,
             data: transferData,
             value: '0x0', // ERC20 transfers don't send ETH
+            // chainId: chainIdNum,
           },
           {
             sponsor: true,
@@ -1320,8 +1457,8 @@ export function AirtimeSwapCard() {
       if (purchaseResponse.ok && purchaseResult.success) {
         const categoryName = UTILITY_CATEGORIES.find(cat => cat.id === selectedCategory)?.name || 'Service';
         const recipient = selectedCategory === "electricity"
-          ? data.phoneNumber // Meter number
-          : data.phoneNumber; // Phone number
+          ? data.phoneNumber ?? "" // Meter number
+          : data.phoneNumber ?? ""; // Phone number
 
         // Check if transaction status is processing
         const transactionStatus = purchaseResult.transaction?.status || 'completed';
@@ -1345,18 +1482,18 @@ export function AirtimeSwapCard() {
             reference: purchaseResult.transaction.paybetaReference || "",
             amount: purchaseResult.transaction.amount || Math.round(ngnAmount),
             biller: purchaseResult.transaction.biller || serviceName,
-            customerId: purchaseResult.transaction.customerId || recipient,
+            customerId: purchaseResult.transaction.customerId || recipient || "",
             token: purchaseResult.transaction.token,
             unit: purchaseResult.transaction.unit,
             bonusToken: purchaseResult.transaction.bonusToken || "",
             transactionDate: purchaseResult.transaction.transactionDate || new Date().toLocaleString(),
             transactionId: purchaseResult.transaction.paybetaTransactionId || "",
             category: categoryName,
-            recipient: recipient,
+            recipient: recipient || "",
             customerName: meterValidation?.customerName,
             customerAddress: meterValidation?.customerAddress,
             meterType: meterType === "prepaid" ? "Prepaid" : "Postpaid",
-            meterNumber: data.phoneNumber, // Meter number
+            meterNumber: data.phoneNumber ?? "", // Meter number
           };
           setReceipt(receiptData);
           setShowReceipt(true);
@@ -1700,7 +1837,11 @@ export function AirtimeSwapCard() {
         <div className="space-y-2">
           <div>
             <label className="text-sm text-gray-600">
-              {(selectedCategory === "airtime" || selectedCategory === "electricity") ? "Amount (NGN)" : "Send"}
+              {selectedCategory === "transfer" 
+                ? `Amount (${selectedToken})`
+                : (selectedCategory === "airtime" || selectedCategory === "electricity") 
+                  ? "Amount (NGN)" 
+                  : "Send"}
             </label>
           </div>
           <div className="flex gap-2">
@@ -1994,7 +2135,9 @@ export function AirtimeSwapCard() {
           <div className="space-y-3">
             <div>
               <label className="text-xs text-gray-500 mb-1 block">
-                {selectedCategory === "airtime" || selectedCategory === "data_bundle"
+                {selectedCategory === "transfer"
+                  ? "Recipient Address"
+                  : selectedCategory === "airtime" || selectedCategory === "data_bundle"
                   ? "Phone Number"
                   : selectedCategory === "electricity"
                     ? "Meter Number"
@@ -2002,24 +2145,37 @@ export function AirtimeSwapCard() {
                       ? "Smart Card Number"
                       : "Account Number"}
               </label>
-              <Input
-                type="tel"
-                placeholder={
-                  selectedCategory === "airtime" || selectedCategory === "data_bundle"
-                    ? "08123456789"
-                    : selectedCategory === "electricity"
-                      ? "Enter meter number"
-                      : selectedCategory === "cable_tv"
-                        ? "Enter smart card number"
-                        : "Enter account number"
-                }
-                className="w-full bg-gray-50 border-gray-300 text-gray-900 h-12 rounded-2xl disabled:opacity-50"
-                disabled={!UTILITY_CATEGORIES.find(cat => cat.id === selectedCategory)?.enabled}
-                {...register("phoneNumber")}
-              />
+              {selectedCategory === "transfer" ? (
+                <Input
+                  type="text"
+                  placeholder="0x..."
+                  className="w-full bg-gray-50 border-gray-300 text-gray-900 h-12 rounded-2xl disabled:opacity-50"
+                  disabled={isProcessing}
+                  {...register("recipientAddress")}
+                />
+              ) : (
+                <Input
+                  type="tel"
+                  placeholder={
+                    selectedCategory === "airtime" || selectedCategory === "data_bundle"
+                      ? "08123456789"
+                      : selectedCategory === "electricity"
+                        ? "Enter meter number"
+                        : selectedCategory === "cable_tv"
+                          ? "Enter smart card number"
+                          : "Enter account number"
+                  }
+                  className="w-full bg-gray-50 border-gray-300 text-gray-900 h-12 rounded-2xl disabled:opacity-50"
+                  disabled={!UTILITY_CATEGORIES.find(cat => cat.id === selectedCategory)?.enabled}
+                  {...register("phoneNumber")}
+                />
+              )}
             </div>
-            {errors.phoneNumber && (
+            {errors.phoneNumber && selectedCategory !== "transfer" && (
               <p className="text-sm text-red-600">{errors.phoneNumber.message}</p>
+            )}
+            {errors.recipientAddress && selectedCategory === "transfer" && (
+              <p className="text-sm text-red-600">{errors.recipientAddress.message}</p>
             )}
 
             {/* Meter Type Selector for Electricity */}
@@ -2080,7 +2236,7 @@ export function AirtimeSwapCard() {
               </>
             )}
 
-            {(ngnAmount || ((selectedCategory === "airtime" || selectedCategory === "electricity") && calculatedTokenAmount)) && (
+            {selectedCategory !== "transfer" && (ngnAmount || ((selectedCategory === "airtime" || selectedCategory === "electricity") && calculatedTokenAmount)) && (
               <div className="text-left p-3 bg-gray-50 rounded-2xl border border-gray-200">
                 {(selectedCategory === "airtime" || selectedCategory === "electricity") && calculatedTokenAmount ? (
                   <>
@@ -2142,7 +2298,8 @@ export function AirtimeSwapCard() {
             // Only validate form fields if user is authenticated and has wallet
             (authenticated && !!getWalletAddressFromPrivyUser(user || {}) && (
               !selectedAmount ||
-              !phoneNumber ||
+              // For transfer, check recipientAddress; for others, check phoneNumber
+              (selectedCategory === 'transfer' ? !recipientAddress : !phoneNumber) ||
               !selectedService ||
               (() => {
                 const inputAmount = parseFloat(selectedAmount || "0");
@@ -2190,12 +2347,12 @@ export function AirtimeSwapCard() {
           {!authenticated ? (
             <>
               <Wallet className="mr-2 h-5 w-5" />
-              Sign in to Purchase
+              {selectedCategory === 'transfer' ? 'Sign in to Send' : 'Sign in to Purchase'}
             </>
           ) : !getWalletAddressFromPrivyUser(user || {}) ? (
             <>
               <Wallet className="mr-2 h-5 w-5" />
-              Connect Wallet to Purchase
+              {selectedCategory === 'transfer' ? 'Connect Wallet to Send' : 'Connect Wallet to Purchase'}
             </>
           ) : isProcessing ? (
             <>
@@ -2205,7 +2362,7 @@ export function AirtimeSwapCard() {
           ) : !UTILITY_CATEGORIES.find(cat => cat.id === selectedCategory)?.enabled ? (
             "Service Coming Soon"
           ) : (
-            "Purchase"
+            selectedCategory === 'transfer' ? 'Send' : 'Purchase'
           )}
         </Button>
       </form>

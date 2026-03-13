@@ -8,7 +8,7 @@ import {
   type ReactNode,
 } from "react";
 
-const SUPPORTED_CHAIN_IDS = [8453]; // Base Mainnet only
+const SUPPORTED_CHAIN_IDS = [8453, 137]; // Base and Polygon
 const DEFAULT_CHAIN_ID = 8453;
 
 interface SelectedNetworkContextType {

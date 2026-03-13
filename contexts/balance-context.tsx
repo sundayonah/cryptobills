@@ -53,8 +53,8 @@ const ERC20_ABI = [
 
 // Supported chain IDs
 const SUPPORTED_CHAIN_IDS = [
-  8453,   // Base Mainnet only
-  // 137,    // Polygon Mainnet (disabled)
+  8453,   // Base Mainnet
+  137,    // Polygon Mainnet
   // 42161,  // Arbitrum Mainnet (disabled)
   // 43114,  // Avalanche C-Chain Mainnet (disabled)
 ];

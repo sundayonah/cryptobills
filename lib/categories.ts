@@ -37,6 +37,12 @@ export const UTILITY_CATEGORIES: CategoryConfig[] = [
     apiPath: '/cable',
   },
   {
+    id: 'transfer',
+    name: 'Transfer',
+    enabled: true,
+    apiPath: '/transfer',
+  },
+  {
     id: 'showmax',
     name: 'Showmax',
     enabled: false,

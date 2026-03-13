@@ -46,6 +46,7 @@ export type UtilityBillCategory =
     | 'data_bundle'
     | 'cable_tv'
     | 'electricity'
+    | 'transfer'
     | 'showmax'
     | 'gaming';
 
