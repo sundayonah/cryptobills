@@ -40,6 +40,7 @@ interface BalanceContextType {
   refreshBalances: (chainId?: number) => Promise<void>;
   refreshInjectedBalances: () => Promise<void>;
   getBalance: (token: SupportedToken) => TokenBalance | null;
+  getBalanceForWallet: (token: SupportedToken, walletAddress: string) => TokenBalance | null;
   clearBalanceCache: (walletType?: 'privy' | 'injected') => void;
 }
 

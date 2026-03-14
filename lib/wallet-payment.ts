@@ -9,6 +9,14 @@
 import { encodeFunctionData, erc20Abi, type Address, createPublicClient, http, type Hash } from 'viem';
 import { SUPPORTED_NETWORKS } from './networks';
 
+// Public RPC URLs for transaction confirmation (no auth) - avoids 401 when Alchemy has origin restrictions
+const PUBLIC_RPC_BY_CHAIN: Record<number, string> = {
+  8453: 'https://mainnet.base.org',           // Base
+  137: 'https://polygon-rpc.com',             // Polygon
+  42161: 'https://arb1.arbitrum.io/rpc',      // Arbitrum
+  43114: 'https://api.avax.network/ext/bc/C/rpc', // Avalanche
+};
+
 // ============================================
 // TYPES
 // ============================================
@@ -89,15 +97,18 @@ export async function waitForTransactionConfirmation(
     maxAttempts: number = 20,
     delayMs: number = 3000
 ): Promise<{ status: 'success' | 'failed'; blockNumber: bigint }> {
-    // Get network configuration
+    // Prefer public RPC for confirmation to avoid 401 (Alchemy etc. may restrict browser origins)
     const network = SUPPORTED_NETWORKS.find(n => n.id === chainId);
-    if (!network || !network.rpcUrl) {
+    if (!network) {
         throw new Error(`Network configuration not found for chain ID ${chainId}`);
     }
+    const rpcUrl = PUBLIC_RPC_BY_CHAIN[chainId] ?? network.rpcUrl;
+    if (!rpcUrl) {
+        throw new Error(`No RPC configured for chain ID ${chainId}`);
+    }
 
-    // Create public client for the network
     const publicClient = createPublicClient({
-        transport: http(network.rpcUrl),
+        transport: http(rpcUrl),
     });
 
     // Wait for transaction receipt

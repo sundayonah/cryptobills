@@ -87,6 +87,7 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
     privyBalances,
     injectedBalances,
     getBalance,
+    getBalanceForWallet,
     isLoading: isLoadingBalance,
     refreshBalances,
     refreshInjectedBalances,
@@ -180,6 +181,12 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
   // Fetch providers based on selected category
   useEffect(() => {
     const fetchProviders = async () => {
+      // Transfer has no providers (wallet-to-wallet only); skip API call
+      if (selectedCategory === 'transfer') {
+        setProviders([]);
+        setLoadingProviders(false);
+        return;
+      }
       // Only fetch providers for enabled categories
       const category = UTILITY_CATEGORIES.find(cat => cat.id === selectedCategory);
       if (!category || !category.enabled) {
@@ -311,6 +318,14 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
     // They are intentionally excluded to avoid circular dependencies
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCategory, setValue, toast]);
+
+  // Transfer: use Privy only (no Injected option)
+  useEffect(() => {
+    if (selectedCategory === 'transfer') {
+      setPaymentOption('privy');
+      setSelectedWalletAddress(getWalletAddressFromPrivyUser(user || {}) || '');
+    }
+  }, [selectedCategory, user]);
 
   // Fetch bundles when data bundle provider changes
   const fetchBundles = useCallback(async (service: DataBundleService) => {
@@ -1017,8 +1032,10 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
           description: `Sending ${tokenAmountForTransfer} ${data.token}...`,
         });
 
-        // Check balance
-        const balance = getBalance(data.token);
+        // Check balance for the selected payment method (Privy vs Injected)
+        const balance = paymentOption === 'privy'
+          ? getBalance(data.token)
+          : (selectedWalletAddress ? getBalanceForWallet(data.token, selectedWalletAddress) : null);
         if (balance) {
           const balanceAmount = parseFloat(balance.formatted);
           const requiredAmount = parseFloat(tokenAmountForTransfer);
@@ -2044,8 +2061,8 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
             </Select>
           </div>
 
-          {/* Wallet Payment Choice */}
-          {showWalletChoice && (
+          {/* Wallet Payment Choice - hidden for Transfer (Privy only for now) */}
+          {showWalletChoice && selectedCategory !== 'transfer' && (
             <WalletPaymentChoice
               selectedToken={selectedToken}
               selectedOption={paymentOption}
