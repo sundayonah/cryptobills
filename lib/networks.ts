@@ -26,17 +26,18 @@ export const SUPPORTED_NETWORKS: Network[] = [
     },
     rpcUrl: 'https://base-mainnet.g.alchemy.com/v2/f9VLG4qggmoQThJmgLuSA',
   },
-  {
-    id: 137,
-    name: 'Polygon',
-    chainId: 'eip155:137',
-    nativeCurrency: {
-      name: 'MATIC',
-      symbol: 'MATIC',
-      decimals: 18,
-    },
-    rpcUrl: 'https://polygon-mainnet.g.alchemy.com/v2/f9VLG4qggmoQThJmgLuSA',
-  },
+  // Polygon - re-enable in pimlico-gas-usdc branch
+  // {
+  //   id: 137,
+  //   name: 'Polygon',
+  //   chainId: 'eip155:137',
+  //   nativeCurrency: {
+  //     name: 'MATIC',
+  //     symbol: 'MATIC',
+  //     decimals: 18,
+  //   },
+  //   rpcUrl: 'https://polygon-mainnet.g.alchemy.com/v2/f9VLG4qggmoQThJmgLuSA',
+  // },
   // Arbitrum temporarily disabled
   // {
   //   id: 42161,

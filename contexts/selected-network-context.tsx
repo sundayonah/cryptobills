@@ -8,7 +8,7 @@ import {
   type ReactNode,
 } from "react";
 
-const SUPPORTED_CHAIN_IDS = [8453, 137]; // Base and Polygon
+const SUPPORTED_CHAIN_IDS = [8453]; // Base only; Polygon in pimlico-gas-usdc branch
 const DEFAULT_CHAIN_ID = 8453;
 
 interface SelectedNetworkContextType {

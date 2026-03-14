@@ -26,6 +26,7 @@ export async function GET(request: NextRequest) {
       electricity: '/electricity/providers',
       showmax: '/showmax/bouquets',
       gaming: '/gaming/providers',
+      transfer: '/transfer',
     };
 
     const apiPath = categoryMap[category];
