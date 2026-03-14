@@ -216,6 +216,10 @@ export async function processPayment(request: PurchaseRequest): Promise<Purchase
         electricity: purchaseElectricity,
         showmax: purchaseShowmax,
         gaming: purchaseGaming,
+        transfer: async () => {
+            // Transfer is handled client-side (direct ERC20); never routed here
+            throw new Error('Transfer payments are processed on the client');
+        },
     };
 
     const processor = processorMap[request.category];

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getPayBetaClient } from '@/lib/paybeta';
 import type { UtilityBillCategory } from '@/types';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * Generic providers endpoint that works for any category
  * GET /api/providers?category=airtime
