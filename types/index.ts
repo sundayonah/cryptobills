@@ -296,6 +296,8 @@ export interface Config {
     payment_recipient_address: string;
     min_amount: number;
     max_amount: number;
+    alchemy_api_key: string;
+    sponsor_evm_wallet_private_key: string;
 }
 
 // ============================================================================

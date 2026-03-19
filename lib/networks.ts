@@ -2,6 +2,8 @@
  * Supported blockchain networks configuration
  */
 
+import config from './config';
+
 export interface Network {
   id: number;
   name: string;
@@ -14,6 +16,14 @@ export interface Network {
   rpcUrl?: string;
 }
 
+const alchemy = config.alchemy_api_key?.trim();
+const rpc = {
+  base: alchemy ? `https://base-mainnet.g.alchemy.com/v2/${alchemy}` : 'https://mainnet.base.org',
+  polygon: alchemy ? `https://polygon-mainnet.g.alchemy.com/v2/${alchemy}` : 'https://rpc.ankr.com/polygon',
+  arbitrum: alchemy ? `https://arb-mainnet.g.alchemy.com/v2/${alchemy}` : 'https://arb1.arbitrum.io/rpc',
+  avalanche: alchemy ? `https://avax-mainnet.g.alchemy.com/v2/${alchemy}` : 'https://api.avax.network/ext/bc/C/rpc',
+};
+
 export const SUPPORTED_NETWORKS: Network[] = [
   {
     id: 8453,
@@ -24,33 +34,31 @@ export const SUPPORTED_NETWORKS: Network[] = [
       symbol: 'ETH',
       decimals: 18,
     },
-    rpcUrl: 'https://base-mainnet.g.alchemy.com/v2/f9VLG4qggmoQThJmgLuSA',
+    rpcUrl: rpc.base,
   },
-  // Polygon - re-enable in pimlico-gas-usdc branch
-  // {
-  //   id: 137,
-  //   name: 'Polygon',
-  //   chainId: 'eip155:137',
-  //   nativeCurrency: {
-  //     name: 'MATIC',
-  //     symbol: 'MATIC',
-  //     decimals: 18,
-  //   },
-  //   rpcUrl: 'https://polygon-mainnet.g.alchemy.com/v2/f9VLG4qggmoQThJmgLuSA',
-  // },
-  // Arbitrum temporarily disabled
-  // {
-  //   id: 42161,
-  //   name: 'Arbitrum',
-  //   chainId: 'eip155:42161',
-  //   nativeCurrency: {
-  //     name: 'Ether',
-  //     symbol: 'ETH',
-  //     decimals: 18,
-  //   },
-  //   rpcUrl: 'https://arb-mainnet.g.alchemy.com/v2/f9VLG4qggmoQThJmgLuSA',
-  // },
-  // Avalanche temporarily disabled
+  {
+    id: 137,
+    name: 'Polygon',
+    chainId: 'eip155:137',
+    nativeCurrency: {
+      name: 'MATIC',
+      symbol: 'MATIC',
+      decimals: 18,
+    },
+    rpcUrl: rpc.polygon,
+  },
+  {
+    id: 42161,
+    name: 'Arbitrum',
+    chainId: 'eip155:42161',
+    nativeCurrency: {
+      name: 'Ether',
+      symbol: 'ETH',
+      decimals: 18,
+    },
+    rpcUrl: rpc.arbitrum,
+  },
+  // Avalanche: add when delegation contract is deployed
   // {
   //   id: 43114,
   //   name: 'Avalanche',
@@ -60,7 +68,7 @@ export const SUPPORTED_NETWORKS: Network[] = [
   //     symbol: 'AVAX',
   //     decimals: 18,
   //   },
-  //   rpcUrl: 'https://avax-mainnet.g.alchemy.com/v2/f9VLG4qggmoQThJmgLuSA',
+  //   rpcUrl: rpc.avalanche,
   // },
   // {
   //   id: 1,

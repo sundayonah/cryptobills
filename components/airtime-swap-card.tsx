@@ -6,7 +6,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { ethers } from "ethers";
-import { encodeFunctionData, erc20Abi, parseUnits } from "viem";
+import { encodeFunctionData, erc20Abi, parseUnits, createPublicClient, http } from "viem";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -28,13 +28,28 @@ import { useSelectedNetwork } from "@/contexts/selected-network-context";
 import { SUPPORTED_NETWORKS } from "@/lib/networks";
 import {
   getWalletChainId,
+  waitForWalletChain,
   waitForTransactionConfirmation,
   checkTokenBalance,
   sendExternalWalletTransaction,
   getExternalWalletProvider,
-  switchNetworkIfNeeded
+  switchNetworkIfNeeded,
+  getPublicRpcUrl,
 } from "@/lib/wallet-payment";
 import type { Address } from "viem";
+import {
+  BASE_CHAIN_ID,
+  isExecuteSponsoredChain,
+  getDelegationContractAddress,
+} from "@/lib/bundler-config";
+import {
+  buildBatchDigest,
+  encodeExecuteBatch,
+  readBatchNonce,
+  type BatchCall,
+} from "@/lib/providerBatch";
+import { useDelegationContractAuth } from "@/hooks/useDelegationContractAuth";
+import { getViemChain } from "@/lib/utils";
 import { convertToNGN } from "@/lib/exchange";
 import type { SupportedToken, AirtimeService, AirtimeProvider, UtilityBillCategory, DataBundleService, DataBundlePackage } from "@/types";
 import { motion } from "framer-motion";
@@ -82,6 +97,7 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
   const { ready, authenticated, user, login, connectWallet } = usePrivy();
   const { wallets } = useWallets();
   const { sendTransaction } = useSendTransaction();
+  const { signDelegationAuthorization } = useDelegationContractAuth();
   const { toast } = useToast();
   const {
     privyBalances,
@@ -94,6 +110,69 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
     clearBalanceCache
   } = useBalance();
   const { chainId: selectedChainId } = useSelectedNetwork();
+
+  /** Run execute-sponsored flow: batch digest, personal_sign, optional EIP-7702, POST. Used for Polygon/Arbitrum (Privy embedded). */
+  const runExecuteSponsored = useCallback(
+    async (
+      wallet: { getEthereumProvider: () => Promise<unknown> },
+      accountAddress: string,
+      chainId: number,
+      calls: BatchCall[]
+    ): Promise<string> => {
+      const rpcUrl = getPublicRpcUrl(chainId);
+      const chain = getViemChain(chainId);
+      if (!rpcUrl || !chain) throw new Error(`No RPC or chain for ${chainId}`);
+      const publicClient = createPublicClient({ chain, transport: http(rpcUrl) });
+      let nonce = BigInt(0);
+      try {
+        nonce = await readBatchNonce(publicClient, accountAddress as Address);
+      } catch {
+        nonce = BigInt(0);
+      }
+      const digest = buildBatchDigest(nonce, calls);
+      const provider = await wallet.getEthereumProvider();
+      const signature = await (provider as { request: (p: { method: string; params?: unknown[] }) => Promise<string> }).request({
+        method: "personal_sign",
+        params: [digest, accountAddress],
+      });
+      let eip7702Authorization: Record<string, unknown> | undefined;
+      const delegationAddr = getDelegationContractAddress(chainId);
+      if (delegationAddr) {
+        try {
+          eip7702Authorization = await signDelegationAuthorization(chainId);
+        } catch {
+          // optional; server may still do execute-only if already delegated
+        }
+      }
+      const callData = encodeExecuteBatch(calls, signature as `0x${string}`);
+      const body: Record<string, unknown> = {
+        accountAddress,
+        callData,
+        chainId,
+        ...(eip7702Authorization && delegationAddr
+          ? { eip7702Authorization, delegationContractAddress: delegationAddr }
+          : {}),
+      };
+      // JSON.stringify can't serialize BigInt; convert to hex string for signature fields (r, s) or decimal for others
+      const bodyJson = JSON.stringify(body, (_key, value) =>
+        typeof value === "bigint" ? "0x" + value.toString(16) : value
+      );
+      const res = await fetch("/api/bundler/execute-sponsored", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: bodyJson,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as { error?: string }).error || `Execute-sponsored failed: ${res.status}`);
+      }
+      const data = await res.json();
+      const txHash = (data as { transactionHash?: string }).transactionHash;
+      if (!txHash) throw new Error("No transactionHash from execute-sponsored");
+      return txHash;
+    },
+    [signDelegationAuthorization]
+  );
 
   // Wallet payment choice state
   const showWalletChoice = useWalletPaymentChoice(user);
@@ -976,15 +1055,7 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
 
         try {
           await wallet.switchChain(chainId);
-
-          // Wait a moment for the wallet to fully sync after switching
-          await new Promise(resolve => setTimeout(resolve, 1500));
-
-          // Verify the switch was successful
-          const newChainId = getWalletChainId(wallet);
-          if (newChainId !== chainId) {
-            throw new Error(`Network switch incomplete. Expected ${networkInfo?.name} (${chainId}), but wallet is on chain ${newChainId}`);
-          }
+          await waitForWalletChain(wallet, chainId);
 
           toast({
             title: "Network Switched",
@@ -1001,21 +1072,21 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
       // ============================================
       // HANDLE TRANSFER CATEGORY (SKIP EXCHANGE RATE & PAYBETA)
       // ============================================
-      
+
       if (selectedCategory === 'transfer') {
         // For transfers, we skip exchange rate and PayBeta checks
         // User enters token amount directly, not NGN
-        
+
         // Validate recipient address
         if (!data.recipientAddress || !isAddress(data.recipientAddress)) {
           throw new Error('Please enter a valid recipient address');
         }
-        
+
         // Validate amount
         if (!data.amount || parseFloat(data.amount) <= 0) {
           throw new Error('Please enter a valid amount');
         }
-        
+
         // Get token configuration for the chain
         const tokenConfig = getTokenConfigForChain(data.token, chainId);
         if (!tokenConfig) {
@@ -1057,25 +1128,32 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
         let txHash: string;
 
         if (paymentOption === 'privy') {
-          // Privy wallet payment with gas sponsorship
-          const txResult = await sendTransaction(
-            {
-              to: tokenAddress,
-              data: transferData,
-              value: '0x0',
-            },
-            {
-              sponsor: true,
-            } as any
-          );
-
-          txHash = typeof txResult === 'string'
-            ? txResult
-            : (txResult as any).hash || (txResult as any).transactionHash || '';
-
-          if (!txHash) {
-            throw new Error('Failed to get transaction hash');
+          const accountAddress = getWalletAddressFromPrivyUser(user!);
+          if (!accountAddress) throw new Error('Privy wallet address not found');
+          if (chainId === BASE_CHAIN_ID) {
+            // Base: Privy sponsor only (no execute-sponsored)
+            const txResult = await sendTransaction(
+              { to: tokenAddress, data: transferData, value: '0x0' },
+              { sponsor: true } as any
+            );
+            txHash = typeof txResult === 'string'
+              ? txResult
+              : (txResult as any).hash || (txResult as any).transactionHash || '';
+          } else if (isExecuteSponsoredChain(chainId) && getDelegationContractAddress(chainId)) {
+            // Polygon/Arbitrum: execute-sponsored (batch + optional EIP-7702)
+            const calls: BatchCall[] = [{ to: tokenAddress, value: BigInt(0), data: transferData }];
+            txHash = await runExecuteSponsored(wallet!, accountAddress, chainId, calls);
+          } else {
+            // Other chains (e.g. Avalanche without delegation): user pays gas
+            const txResult = await sendTransaction(
+              { to: tokenAddress, data: transferData, value: '0x0' },
+              {} as any
+            );
+            txHash = typeof txResult === 'string'
+              ? txResult
+              : (txResult as any).hash || (txResult as any).transactionHash || '';
           }
+          if (!txHash) throw new Error('Failed to get transaction hash');
         } else {
           // External wallet payment (user pays gas)
           const externalWallet = wallets.find(w =>
@@ -1123,7 +1201,7 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
 
         // Show success and return
         setIsProcessing(false);
-        
+
         return;
       }
 
@@ -1292,27 +1370,32 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
           args: [recipientAddress, parseUnits(tokenAmountForTransfer, decimals)],
         });
 
-        // Use Privy's sendTransaction with gas sponsorship
-        const txResult = await sendTransaction(
-          {
-            to: tokenAddress,
-            data: transferData,
-            value: '0x0', // ERC20 transfers don't send ETH
-            // chainId: chainIdNum,
-          },
-          {
-            sponsor: true,
-          } as any
-        );
-
-        // Extract transaction hash
-        txHash = typeof txResult === 'string'
-          ? txResult
-          : (txResult as any).hash || (txResult as any).transactionHash || '';
-
-        if (!txHash) {
-          throw new Error('Failed to get transaction hash from Privy sendTransaction');
+        const accountAddress = getWalletAddressFromPrivyUser(user!);
+        if (!accountAddress) throw new Error('Privy wallet address not found');
+        if (chainIdNum === BASE_CHAIN_ID) {
+          // Base: Privy sponsor only
+          const txResult = await sendTransaction(
+            { to: tokenAddress, data: transferData, value: '0x0' },
+            { sponsor: true } as any
+          );
+          txHash = typeof txResult === 'string'
+            ? txResult
+            : (txResult as any).hash || (txResult as any).transactionHash || '';
+        } else if (isExecuteSponsoredChain(chainIdNum) && getDelegationContractAddress(chainIdNum)) {
+          // Polygon/Arbitrum: execute-sponsored
+          const calls: BatchCall[] = [{ to: tokenAddress, value: BigInt(0), data: transferData }];
+          txHash = await runExecuteSponsored(wallet, accountAddress, chainIdNum, calls);
+        } else {
+          // Other chains: user pays gas
+          const txResult = await sendTransaction(
+            { to: tokenAddress, data: transferData, value: '0x0' },
+            {} as any
+          );
+          txHash = typeof txResult === 'string'
+            ? txResult
+            : (txResult as any).hash || (txResult as any).transactionHash || '';
         }
+        if (!txHash) throw new Error('Failed to get transaction hash from Privy sendTransaction');
 
       } else {
         // ============================================
@@ -1854,10 +1937,10 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
         <div className="space-y-2">
           <div>
             <label className="text-sm text-gray-600">
-              {selectedCategory === "transfer" 
+              {selectedCategory === "transfer"
                 ? `Amount (${selectedToken})`
-                : (selectedCategory === "airtime" || selectedCategory === "electricity") 
-                  ? "Amount (NGN)" 
+                : (selectedCategory === "airtime" || selectedCategory === "electricity")
+                  ? "Amount (NGN)"
                   : "Send"}
             </label>
           </div>
@@ -2155,12 +2238,12 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
                 {selectedCategory === "transfer"
                   ? "Recipient Address"
                   : selectedCategory === "airtime" || selectedCategory === "data_bundle"
-                  ? "Phone Number"
-                  : selectedCategory === "electricity"
-                    ? "Meter Number"
-                    : selectedCategory === "cable_tv"
-                      ? "Smart Card Number"
-                      : "Account Number"}
+                    ? "Phone Number"
+                    : selectedCategory === "electricity"
+                      ? "Meter Number"
+                      : selectedCategory === "cable_tv"
+                        ? "Smart Card Number"
+                        : "Account Number"}
               </label>
               {selectedCategory === "transfer" ? (
                 <Input
