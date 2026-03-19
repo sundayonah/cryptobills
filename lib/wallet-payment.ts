@@ -2,7 +2,7 @@
  * Professional Wallet Payment Handler
  * Utility functions for wallet operations and transaction confirmation
  * 
- * Uses Viem + Privy pattern (inspired by Noblocks/Paycrest)
+ * Uses Viem + Privy pattern
  * Compatible with Privy v1.50 (useWallets hook)
  */
 

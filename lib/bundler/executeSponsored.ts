@@ -2,7 +2,6 @@
  * Sponsored execution: bundler sends a direct tx to the user's account with callData.
  * When eip7702Authorization is provided, submits type 4 (delegation) first, then execute.
  * If the EOA is already delegated to the expected contract, skips type-4 and sends execute-only.
- * Ported from Noblocks (upgrade-server).
  */
 import { getAddress, type Hash } from 'viem';
 import type { PublicClient, WalletClient, Chain } from 'viem';

@@ -9,7 +9,6 @@ import { getDelegationContractAddress } from "@/lib/bundler-config";
 /**
  * Hook to sign EIP-7702 authorizations for the delegation contract.
  * Sign with the execution chainId so the account delegates to the contract on that chain.
- * Noblocks-style: useSign7702Authorization + getDelegationContractAddress.
  */
 export function useDelegationContractAuth() {
   const { signAuthorization } = useSign7702Authorization();

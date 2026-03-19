@@ -1,5 +1,5 @@
 /**
- * Bundler / execute-sponsored config (Noblocks-style).
+ * Bundler / execute-sponsored config.
  * Base (8453) uses Privy sendTransaction(sponsor: true) only; no execute-sponsored.
  * Polygon, Arbitrum use execute-sponsored for Privy embedded wallet. Avalanche when delegation contract is deployed.
  */

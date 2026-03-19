@@ -1,6 +1,6 @@
 /**
  * ProviderBatchCallAndSponsor batch execution: execute(calls, signature).
- * Digest and encoding match Noblocks/ProviderBatchCallAndSponsor.sol:
+ * Digest and encoding match ProviderBatchCallAndSponsor.sol:
  *   encodedCalls = abi.encodePacked(calls[i].to, calls[i].value, calls[i].data) per call
  *   digest = keccak256(abi.encodePacked(nonce, encodedCalls))
  *   User signs digest via personal_sign; contract uses ECDSA.toEthSignedMessageHash(digest).
