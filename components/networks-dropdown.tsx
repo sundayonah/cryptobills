@@ -20,9 +20,9 @@ import Image from "next/image";
 function getBlockExplorerUrls(chainId: number): string[] {
   const explorers: Record<number, string[]> = {
     8453: ["https://basescan.org"],      // Base
-    137: ["https://polygonscan.com"],    // Polygon 
+    137: ["https://polygonscan.com"],    // Polygon
     42161: ["https://arbiscan.io"],      // Arbitrum
-    43114: ["https://snowtrace.io"],     // Avalanche
+    // 43114: ["https://snowtrace.io"],  // Avalanche - add when delegation contract deployed
   };
   return explorers[chainId] || [];
 }

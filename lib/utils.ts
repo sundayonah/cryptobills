@@ -1,5 +1,22 @@
 import { type ClassValue, clsx } from "clsx"
 import { twMerge } from "tailwind-merge"
+import { base, polygon, arbitrum, type Chain } from "viem/chains"
+// import { avalanche } from "viem/chains" // add when Avalanche delegation contract deployed
+
+const CHAINS_BY_ID: Record<number, Chain> = {
+  [base.id]: base,
+  [polygon.id]: polygon,
+  [arbitrum.id]: arbitrum,
+  // [avalanche.id]: avalanche,
+}
+
+/**
+ * Client-safe viem chain lookup for the supported networks.
+ * Used for createPublicClient when calling readBatchNonce etc.
+ */
+export function getViemChain(chainId: number): Chain | null {
+  return CHAINS_BY_ID[chainId] ?? null
+}
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))

@@ -2,20 +2,29 @@
  * Professional Wallet Payment Handler
  * Utility functions for wallet operations and transaction confirmation
  * 
- * Uses Viem + Privy pattern (inspired by Noblocks/Paycrest)
+ * Uses Viem + Privy pattern
  * Compatible with Privy v1.50 (useWallets hook)
  */
 
 import { encodeFunctionData, erc20Abi, type Address, createPublicClient, http, type Hash } from 'viem';
 import { SUPPORTED_NETWORKS } from './networks';
+import config from './config';
 
-// Public RPC URLs for transaction confirmation (no auth) - avoids 401 when Alchemy has origin restrictions
-const PUBLIC_RPC_BY_CHAIN: Record<number, string> = {
-  8453: 'https://mainnet.base.org',           // Base
-  137: 'https://polygon-rpc.com',             // Polygon
-  42161: 'https://arb1.arbitrum.io/rpc',      // Arbitrum
-  43114: 'https://api.avax.network/ext/bc/C/rpc', // Avalanche
-};
+function buildPublicRpcByChain(): Record<number, string> {
+  const alchemy = config.alchemy_api_key?.trim();
+  return {
+    8453: alchemy ? `https://base-mainnet.g.alchemy.com/v2/${alchemy}` : 'https://mainnet.base.org',
+    137: alchemy ? `https://polygon-mainnet.g.alchemy.com/v2/${alchemy}` : 'https://rpc.ankr.com/polygon',
+    42161: alchemy ? `https://arb-mainnet.g.alchemy.com/v2/${alchemy}` : 'https://arb1.arbitrum.io/rpc',
+    // 43114: alchemy ? `https://avax-mainnet.g.alchemy.com/v2/${alchemy}` : 'https://api.avax.network/ext/bc/C/rpc', // add when Avalanche delegation contract deployed
+  };
+}
+
+export const PUBLIC_RPC_BY_CHAIN: Record<number, string> = buildPublicRpcByChain();
+
+export function getPublicRpcUrl(chainId: number): string | null {
+  return PUBLIC_RPC_BY_CHAIN[chainId] ?? null;
+}
 
 // ============================================
 // TYPES
@@ -270,7 +279,7 @@ export async function estimateExternalWalletGas(
 // ============================================
 
 /**
- * Get chain ID from Privy wallet
+ * Get chain ID from Privy wallet (sync; may lag after switchChain).
  */
 export function getWalletChainId(wallet: PrivyWallet): number {
     if (typeof wallet.chainId === 'string') {
@@ -279,4 +288,36 @@ export function getWalletChainId(wallet: PrivyWallet): number {
         return parseInt(parts[parts.length - 1]);
     }
     return wallet.chainId;
+}
+
+/**
+ * Get current chain ID from the wallet's provider (reliable after switchChain).
+ */
+export async function getWalletChainIdFromProvider(wallet: PrivyWallet): Promise<number> {
+    const provider = await wallet.getEthereumProvider();
+    const hex = await provider.request({ method: 'eth_chainId' });
+    return typeof hex === 'string' ? parseInt(hex, 16) : Number(hex);
+}
+
+const SWITCH_CHAIN_POLL_MS = 400;
+const SWITCH_CHAIN_TIMEOUT_MS = 6000;
+
+/**
+ * After calling wallet.switchChain(chainId), wait until the provider reports the target chain.
+ */
+export async function waitForWalletChain(
+    wallet: PrivyWallet,
+    chainId: number,
+    options?: { pollMs?: number; timeoutMs?: number }
+): Promise<void> {
+    const pollMs = options?.pollMs ?? SWITCH_CHAIN_POLL_MS;
+    const timeoutMs = options?.timeoutMs ?? SWITCH_CHAIN_TIMEOUT_MS;
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        const current = await getWalletChainIdFromProvider(wallet);
+        if (current === chainId) return;
+        await new Promise((r) => setTimeout(r, pollMs));
+    }
+    const current = await getWalletChainIdFromProvider(wallet);
+    throw new Error(`Network switch incomplete. Expected chain ${chainId}, but wallet is on chain ${current}`);
 }

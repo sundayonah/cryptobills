@@ -54,10 +54,10 @@ const ERC20_ABI = [
 
 // Supported chain IDs
 const SUPPORTED_CHAIN_IDS = [
-  8453,   // Base Mainnet only; Polygon in pimlico-gas-usdc branch
-  // 137,    // Polygon Mainnet
-  // 42161,  // Arbitrum Mainnet (disabled)
-  // 43114,  // Avalanche C-Chain Mainnet (disabled)
+  8453,   // Base Mainnet
+  137,    // Polygon Mainnet
+  42161,  // Arbitrum Mainnet
+  // 43114,  // Avalanche C-Chain Mainnet - add when delegation contract deployed
 ];
 
 // RPC URLs for each chain - using Alchemy as primary with fallbacks
@@ -94,7 +94,7 @@ const getChainName = (chainId: number): string => {
     8453: 'Base',
     137: 'Polygon',
     42161: 'Arbitrum',
-    43114: 'Avalanche'
+    // 43114: 'Avalanche',
   };
   return chainNames[chainId] || `Chain ${chainId}`;
 };
