@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.18;
 
-import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 
 /**
  * @title ProviderBatchCallAndSponsor
@@ -50,7 +51,7 @@ contract ProviderBatchCallAndSponsor {
         }
         bytes32 digest = keccak256(abi.encodePacked(nonce, encodedCalls));
 
-        bytes32 ethSignedMessageHash = ECDSA.toEthSignedMessageHash(digest);
+        bytes32 ethSignedMessageHash = MessageHashUtils.toEthSignedMessageHash(digest);
 
         // Recover the signer from the provided signature.
         address recovered = ECDSA.recover(ethSignedMessageHash, signature);
@@ -61,10 +62,9 @@ contract ProviderBatchCallAndSponsor {
 
     /**
      * @notice Executes a batch of calls directly.
-     * @dev This contract doesnt authorized self execution.
-     * @param calls An array of Call structs containing destination, ETH value, and calldata.
+     * @dev This contract doesnt authorized self execution. Calldata parameter is unnamed (reserved for ABI compatibility).
      */
-    function execute(Call[] calldata calls) external payable {
+    function execute(Call[] calldata) external payable {
         revert("Not implemented"); // we don't expect this to be called directly
     }
 

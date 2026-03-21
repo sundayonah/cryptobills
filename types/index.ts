@@ -185,6 +185,21 @@ export interface ElectricityPurchaseResponse {
     };
 }
 
+// ============================================================================
+// Gaming (betting wallets) — PayBeta docs: POST /v2/gaming/validate; with PAYBETA_BASE_URL=.../v2 use path /gaming/*
+// ============================================================================
+
+export interface GamingValidationResponse {
+    status: string;
+    message: string;
+    data?: {
+        customerName: string;
+        customerId: string;
+        service: string;
+        minimumAmount: number;
+    };
+}
+
 export interface PayBetaErrorResponse {
     status: string;
     message: string;

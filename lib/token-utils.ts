@@ -22,11 +22,6 @@ const TOKEN_ADDRESSES: Record<
         USDC: "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
         USDT: "0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9",
     },
-    // 43114: add when Avalanche delegation contract deployed
-    // 43114: {
-    //     USDC: "0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E",
-    //     USDT: "0x9702230A8Ea53601f5cD2dc00fDBc13d4dF4A8c7",
-    // },
     // 1: {
     //     // Ethereum Mainnet
     //     USDC: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",

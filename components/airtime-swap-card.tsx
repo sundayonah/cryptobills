@@ -6,7 +6,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { ethers } from "ethers";
-import { encodeFunctionData, erc20Abi, parseUnits, createPublicClient, http } from "viem";
+import { encodeFunctionData, erc20Abi, parseUnits } from "viem";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -34,7 +34,6 @@ import {
   sendExternalWalletTransaction,
   getExternalWalletProvider,
   switchNetworkIfNeeded,
-  getPublicRpcUrl,
 } from "@/lib/wallet-payment";
 import type { Address } from "viem";
 import {
@@ -45,11 +44,10 @@ import {
 import {
   buildBatchDigest,
   encodeExecuteBatch,
-  readBatchNonce,
+  resolveBatchNonceForSigning,
   type BatchCall,
 } from "@/lib/providerBatch";
 import { useDelegationContractAuth } from "@/hooks/useDelegationContractAuth";
-import { getViemChain } from "@/lib/utils";
 import { convertToNGN } from "@/lib/exchange";
 import type { SupportedToken, AirtimeService, AirtimeProvider, UtilityBillCategory, DataBundleService, DataBundlePackage } from "@/types";
 import { motion } from "framer-motion";
@@ -119,16 +117,10 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
       chainId: number,
       calls: BatchCall[]
     ): Promise<string> => {
-      const rpcUrl = getPublicRpcUrl(chainId);
-      const chain = getViemChain(chainId);
-      if (!rpcUrl || !chain) throw new Error(`No RPC or chain for ${chainId}`);
-      const publicClient = createPublicClient({ chain, transport: http(rpcUrl) });
-      let nonce = BigInt(0);
-      try {
-        nonce = await readBatchNonce(publicClient, accountAddress as Address);
-      } catch {
-        nonce = BigInt(0);
-      }
+      const nonce = await resolveBatchNonceForSigning({
+        chainId,
+        accountAddress: accountAddress as Address,
+      });
       const digest = buildBatchDigest(nonce, calls);
       const provider = await wallet.getEthereumProvider();
       const signature = await (provider as { request: (p: { method: string; params?: unknown[] }) => Promise<string> }).request({
@@ -206,6 +198,13 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
     service: string;
   } | null>(null);
   const [validatingSmartCard, setValidatingSmartCard] = useState(false);
+  const [gamingValidation, setGamingValidation] = useState<{
+    customerName: string;
+    customerId: string;
+    service: string;
+    minimumAmount: number;
+  } | null>(null);
+  const [validatingGaming, setValidatingGaming] = useState(false);
   const [receipt, setReceipt] = useState<{
     reference: string;
     amount: number;
@@ -342,6 +341,20 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
               setValue("service", processed[0].service);
               // Fetch packages for the first provider
               fetchPackages(processed[0].service);
+            } else {
+              setProviders([]);
+            }
+          } else if (selectedCategory === "gaming") {
+            const processed = data.data
+              .filter((row: any) => row.slug)
+              .map((row: any) => ({
+                ...row,
+                service: row.slug as string,
+              }));
+            setProviders(processed as Array<AirtimeProvider & { service: string }>);
+            if (processed.length > 0) {
+              setValue("service", processed[0].service);
+              setGamingValidation(null);
             } else {
               setProviders([]);
             }
@@ -623,6 +636,59 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
     }
   }, [toast]);
 
+  // Validate gaming / betting account (PayBeta POST /gaming/validate)
+  const validateGaming = useCallback(async (service: string, customerId: string) => {
+    if (!customerId?.trim() || !service) {
+      return null;
+    }
+
+    setValidatingGaming(true);
+    try {
+      const response = await fetch("/api/gaming/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          service,
+          customerId: customerId.trim(),
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.status === "successful" && data.data) {
+        // Keep API customerName as-is for UI (often empty); purchase uses id fallback on server
+        const nameFromApi =
+          typeof data.data.customerName === "string" ? data.data.customerName.trim() : "";
+        setGamingValidation({
+          customerName: nameFromApi,
+          customerId: data.data.customerId,
+          service: data.data.service,
+          minimumAmount: Number(data.data.minimumAmount) || 100,
+        });
+        return data.data;
+      } else {
+        toast({
+          title: "Validation Failed",
+          description: data.message || "Failed to validate customer ID",
+          variant: "destructive",
+        });
+        setGamingValidation(null);
+        return null;
+      }
+    } catch (error) {
+      console.error("Error validating gaming account:", error);
+      toast({
+        title: "Error",
+        description: "Failed to validate customer ID. Please try again.",
+        variant: "destructive",
+      });
+      setGamingValidation(null);
+      return null;
+    } finally {
+      setValidatingGaming(false);
+    }
+  }, [toast]);
+
   // Auto-validate meter number for electricity when meter number, service, and meter type are filled
   useEffect(() => {
     if (
@@ -660,6 +726,9 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
     if (selectedCategory !== "cable_tv") {
       setSmartCardValidation(null);
     }
+    if (selectedCategory !== "gaming") {
+      setGamingValidation(null);
+    }
   }, [selectedService, selectedCategory, setValue, fetchBundles]);
 
   // Watch for service changes in cable TV category
@@ -690,6 +759,42 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
       return () => clearTimeout(timer);
     }
   }, [phoneNumber, selectedService, selectedCategory, smartCardValidation, validatingSmartCard, validateSmartCard]);
+
+  // Auto-validate gaming customer ID — same pattern as electricity meter (debounce, only if not already validated)
+  useEffect(() => {
+    if (
+      selectedCategory === "gaming" &&
+      phoneNumber &&
+      phoneNumber.trim().length >= 4 &&
+      selectedService &&
+      !gamingValidation &&
+      !validatingGaming
+    ) {
+      const timer = setTimeout(() => {
+        void validateGaming(selectedService, phoneNumber.trim());
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [
+    phoneNumber,
+    selectedService,
+    selectedCategory,
+    gamingValidation,
+    validatingGaming,
+    validateGaming,
+  ]);
+
+  // Clear gaming validation when customer ID changes (so user can re-validate after editing, like changing meter)
+  useEffect(() => {
+    if (selectedCategory !== "gaming") return;
+    setGamingValidation(null);
+  }, [phoneNumber, selectedCategory]);
+
+  useEffect(() => {
+    if (selectedCategory === "gaming" && gamingValidation) {
+      void trigger("amount");
+    }
+  }, [gamingValidation, selectedCategory, trigger]);
 
   // Fetch exchange rate
   useEffect(() => {
@@ -783,8 +888,8 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
       if (!isNaN(amount) && amount > 0) {
         const rate = selectedToken === "USDC" ? exchangeRate.usdcToNgn : exchangeRate.usdtToNgn;
 
-        if (selectedCategory === "airtime" || selectedCategory === "electricity") {
-          // For airtime and electricity: amount is NGN (already integer from input), calculate tokenAmount
+        if (selectedCategory === "airtime" || selectedCategory === "electricity" || selectedCategory === "gaming") {
+          // For airtime, electricity, gaming: amount is NGN (integer), calculate tokenAmount
           const ngnAmountInt = Math.round(amount); // Ensure integer (input should already be integer)
           const tokenAmt = ngnAmountInt / rate;
           setNgnAmount(ngnAmountInt); // Store NGN amount (integer)
@@ -818,6 +923,9 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
     if (selectedCategory === "data_bundle") {
       setSelectedBundle("");
       setValue("bundleCode", "");
+    }
+    if (selectedCategory === "gaming") {
+      setGamingValidation(null);
     }
   }, [selectedCategory, setValue]);
 
@@ -892,6 +1000,36 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
       }
     }
 
+    // Validate gaming account
+    if (selectedCategory === "gaming") {
+      if (!data.phoneNumber?.trim()) {
+        toast({
+          title: "Customer ID required",
+          description: "Enter your gaming / betting account ID",
+          variant: "destructive",
+        });
+        return;
+      }
+      if (!gamingValidation) {
+        toast({
+          title: "Customer ID not validated",
+          description: "Please validate your customer ID first",
+          variant: "destructive",
+        });
+        return;
+      }
+      const minNgn = gamingValidation.minimumAmount;
+      const inputNgnAmount = Math.round(parseFloat(data.amount));
+      if (!isNaN(inputNgnAmount) && inputNgnAmount < minNgn) {
+        toast({
+          title: "Amount too low",
+          description: `This provider requires a minimum top-up of ₦${minNgn.toLocaleString()}`,
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
     // Validate minimum amount for airtime (100 NGN minimum)
     if (selectedCategory === "airtime") {
       const inputNgnAmount = parseFloat(data.amount);
@@ -944,10 +1082,14 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
       return;
     }
 
-    // For airtime and electricity, inputAmount is NGN, so compare calculatedTokenAmount with balance
-    // For other categories, inputAmount is tokenAmount, so compare directly
+    // For airtime, electricity, gaming: inputAmount is NGN → compare token via calculatedTokenAmount (or rate)
+    // For other categories, inputAmount is token amount, compare directly
     let tokenAmountToCheck: number;
-    if ((selectedCategory === "airtime" || selectedCategory === "electricity")) {
+    if (
+      selectedCategory === "airtime" ||
+      selectedCategory === "electricity" ||
+      selectedCategory === "gaming"
+    ) {
       if (calculatedTokenAmount !== null) {
         tokenAmountToCheck = calculatedTokenAmount;
       } else if (exchangeRate) {
@@ -1144,7 +1286,7 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
             const calls: BatchCall[] = [{ to: tokenAddress, value: BigInt(0), data: transferData }];
             txHash = await runExecuteSponsored(wallet!, accountAddress, chainId, calls);
           } else {
-            // Other chains (e.g. Avalanche without delegation): user pays gas
+            // Chains without execute-sponsored + delegation: user pays gas
             const txResult = await sendTransaction(
               { to: tokenAddress, data: transferData, value: '0x0' },
               {} as any
@@ -1218,8 +1360,8 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
       let tokenAmountForTransfer: string; // Token amount to transfer from wallet
 
       try {
-        if (selectedCategory === "airtime" || selectedCategory === "electricity") {
-          // For airtime and electricity: data.amount is NGN (should already be integer from input validation)
+        if (selectedCategory === "airtime" || selectedCategory === "electricity" || selectedCategory === "gaming") {
+          // For airtime, electricity, gaming: data.amount is NGN (integer from input)
           const inputNgnAmount = parseFloat(data.amount);
           if (isNaN(inputNgnAmount) || inputNgnAmount <= 0) {
             throw new Error("Invalid NGN amount");
@@ -1261,6 +1403,19 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
           toast({
             title: "Amount Too Low",
             description: `Electricity purchases require a minimum of ₦${ELECTRICITY_MIN_AMOUNT_NGN.toLocaleString()}. Your amount (₦${roundedNgnAmount.toLocaleString()}) is too low.`,
+            variant: "destructive",
+          });
+          setIsProcessing(false);
+          return;
+        }
+      }
+
+      if (selectedCategory === "gaming" && gamingValidation) {
+        const roundedNgnAmount = Math.round(ngnAmount);
+        if (roundedNgnAmount < gamingValidation.minimumAmount) {
+          toast({
+            title: "Amount Too Low",
+            description: `This gaming provider requires at least ₦${gamingValidation.minimumAmount.toLocaleString()}. Your amount (₦${roundedNgnAmount.toLocaleString()}) is too low.`,
             variant: "destructive",
           });
           setIsProcessing(false);
@@ -1510,8 +1665,8 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
         purchaseBody.phoneNumber = data.phoneNumber;
       }
 
-      // For airtime and electricity, send serviceAmount (NGN integer) so API knows exact amount
-      if (selectedCategory === "airtime" || selectedCategory === "electricity") {
+      // For airtime, electricity, gaming: send serviceAmount (NGN integer)
+      if (selectedCategory === "airtime" || selectedCategory === "electricity" || selectedCategory === "gaming") {
         purchaseBody.serviceAmount = Math.round(ngnAmount); // NGN amount (integer)
       }
 
@@ -1544,6 +1699,14 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
         if (selectedPackageObj) {
           purchaseBody.serviceAmount = parseFloat(selectedPackageObj.price); // Exact NGN price from package
         }
+      }
+
+      if (selectedCategory === "gaming" && gamingValidation) {
+        purchaseBody.customerId = gamingValidation.customerId;
+        // PayBeta may return empty customerName; server/payment processor fall back for purchase
+        purchaseBody.customerName =
+          gamingValidation.customerName.trim() || gamingValidation.customerId;
+        purchaseBody.minimumAmount = gamingValidation.minimumAmount;
       }
 
       const purchaseResponse = await fetch(purchaseEndpoint, {
@@ -1671,6 +1834,7 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
               setValue("bundleCode", "");
               setBundles([]);
               setSelectedBundle("");
+              setGamingValidation(null);
             }}
           >
             <SelectTrigger className="w-full h-12 bg-gray-50 border-gray-300 text-gray-900 rounded-2xl">
@@ -1697,7 +1861,7 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
         </div>
 
         {/* ProviderSelector - Show for airtime, data bundle, and electricity */}
-        {(selectedCategory === "airtime" || selectedCategory === "data_bundle" || selectedCategory === "electricity" || selectedCategory === "cable_tv") && (
+        {(selectedCategory === "airtime" || selectedCategory === "data_bundle" || selectedCategory === "electricity" || selectedCategory === "cable_tv" || selectedCategory === "gaming") && (
           <div className="space-y-2">
             <label className="text-sm text-gray-600">Provider</label>
             {loadingProviders ? (
@@ -1717,6 +1881,9 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
                     // Reset meter validation when provider changes
                     setMeterValidation(null);
                   }
+                  if (selectedCategory === "gaming") {
+                    setGamingValidation(null);
+                  }
                 }}
                 disabled={providers.length === 0 || !UTILITY_CATEGORIES.find(cat => cat.id === selectedCategory)?.enabled}
               >
@@ -1727,7 +1894,7 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
                       : "Select provider"
                   }>
                     {(() => {
-                      if (selectedService && providers.length > 0 && (selectedCategory === "airtime" || selectedCategory === "data_bundle" || selectedCategory === "electricity" || selectedCategory === "cable_tv")) {
+                      if (selectedService && providers.length > 0 && (selectedCategory === "airtime" || selectedCategory === "data_bundle" || selectedCategory === "electricity" || selectedCategory === "cable_tv" || selectedCategory === "gaming")) {
                         const provider = providers.find(p => p.service === selectedService);
                         if (provider) {
                           return (
@@ -1939,7 +2106,7 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
             <label className="text-sm text-gray-600">
               {selectedCategory === "transfer"
                 ? `Amount (${selectedToken})`
-                : (selectedCategory === "airtime" || selectedCategory === "electricity")
+                : (selectedCategory === "airtime" || selectedCategory === "electricity" || selectedCategory === "gaming")
                   ? "Amount (NGN)"
                   : "Send"}
             </label>
@@ -1955,7 +2122,7 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
               className="flex-1 bg-gray-50 border-gray-300 text-gray-900 text-2xl h-12 rounded-2xl disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-gray-100"
               onKeyDown={(e) => {
                 // Block decimal point, comma, minus, and scientific notation for airtime and electricity
-                if (selectedCategory === "airtime" || selectedCategory === "electricity") {
+                if (selectedCategory === "airtime" || selectedCategory === "electricity" || selectedCategory === "gaming") {
                   if (e.key === "." || e.key === "," || e.key === "-" || e.key === "e" || e.key === "E") {
                     e.preventDefault();
                   }
@@ -1984,6 +2151,16 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
                         return "Minimum amount is ₦1,000 for electricity";
                       }
                     }
+                    if (selectedCategory === "gaming") {
+                      const num = parseFloat(value);
+                      const minN = gamingValidation?.minimumAmount ?? 100;
+                      if (isNaN(num) || !Number.isInteger(num)) {
+                        return "Please enter a whole number (NGN)";
+                      }
+                      if (num < minN) {
+                        return `Minimum top-up is ₦${minN.toLocaleString()} for this provider`;
+                      }
+                    }
                     return true;
                   }
                 });
@@ -1991,7 +2168,7 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
                   ...registerProps,
                   onChange: (e: React.ChangeEvent<HTMLInputElement>) => {
                     // Remove any decimal values that get pasted for airtime and electricity
-                    if (selectedCategory === "airtime" || selectedCategory === "electricity") {
+                    if (selectedCategory === "airtime" || selectedCategory === "electricity" || selectedCategory === "gaming") {
                       const value = e.target.value;
                       // Remove decimal point and everything after it
                       if (value.includes(".")) {
@@ -2193,6 +2370,18 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
             }
             return null;
           })()}
+          {selectedCategory === "gaming" && gamingValidation && selectedAmount && !errors.amount && (() => {
+            const inputAmount = parseFloat(selectedAmount);
+            const minN = gamingValidation.minimumAmount;
+            if (!isNaN(inputAmount) && inputAmount < minN) {
+              return (
+                <p className="text-sm text-red-600">
+                  Minimum top-up for this provider is ₦{minN.toLocaleString()}.
+                </p>
+              );
+            }
+            return null;
+          })()}
           {selectedAmount && !errors.amount && (() => {
             const inputAmount = parseFloat(selectedAmount);
             if (isNaN(inputAmount) || inputAmount <= 0) return null;
@@ -2200,11 +2389,12 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
             // Check minimum amounts first (already handled above)
             if (selectedCategory === "airtime" && inputAmount < 100) return null;
             if (selectedCategory === "electricity" && inputAmount < 1000) return null;
+            if (selectedCategory === "gaming" && gamingValidation && inputAmount < gamingValidation.minimumAmount) return null;
 
-            // For airtime and electricity, inputAmount is NGN, so compare calculatedTokenAmount with balance
+            // For airtime, electricity, gaming: inputAmount is NGN → compare token from calculatedTokenAmount
             // For other categories, inputAmount is tokenAmount, so compare directly
             let tokenAmountToCheck: number;
-            if ((selectedCategory === "airtime" || selectedCategory === "electricity")) {
+            if ((selectedCategory === "airtime" || selectedCategory === "electricity" || selectedCategory === "gaming")) {
               if (calculatedTokenAmount !== null) {
                 tokenAmountToCheck = calculatedTokenAmount;
               } else if (exchangeRate) {
@@ -2243,7 +2433,9 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
                       ? "Meter Number"
                       : selectedCategory === "cable_tv"
                         ? "Smart Card Number"
-                        : "Account Number"}
+                        : selectedCategory === "gaming"
+                          ? "Customer ID"
+                          : "Account Number"}
               </label>
               {selectedCategory === "transfer" ? (
                 <Input
@@ -2255,7 +2447,7 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
                 />
               ) : (
                 <Input
-                  type="tel"
+                  type={selectedCategory === "gaming" ? "text" : "tel"}
                   placeholder={
                     selectedCategory === "airtime" || selectedCategory === "data_bundle"
                       ? "08123456789"
@@ -2263,7 +2455,9 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
                         ? "Enter meter number"
                         : selectedCategory === "cable_tv"
                           ? "Enter smart card number"
-                          : "Enter account number"
+                          : selectedCategory === "gaming"
+                            ? "Your betting account ID"
+                            : "Enter account number"
                   }
                   className="w-full bg-gray-50 border-gray-300 text-gray-900 h-12 rounded-2xl disabled:opacity-50"
                   disabled={!UTILITY_CATEGORIES.find(cat => cat.id === selectedCategory)?.enabled}
@@ -2276,6 +2470,30 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
             )}
             {errors.recipientAddress && selectedCategory === "transfer" && (
               <p className="text-sm text-red-600">{errors.recipientAddress.message}</p>
+            )}
+
+            {/* Gaming: validate account (same flow as electricity meter — debounced, status below ID) */}
+            {selectedCategory === "gaming" && (
+              <div className="space-y-2">
+                {validatingGaming && (
+                  <div className="w-full h-12 bg-blue-50 border border-blue-200 rounded-2xl flex items-center justify-center">
+                    <Loader2 className="h-4 w-4 animate-spin text-blue-600 mr-2" />
+                    <span className="text-sm text-blue-600">Validating customer ID...</span>
+                  </div>
+                )}
+                {gamingValidation && (
+                  <div className="p-3 bg-green-50 border border-green-200 rounded-2xl">
+                    <p className="text-sm font-semibold text-green-900 mb-1">Customer ID validated</p>
+                    {gamingValidation.customerName &&
+                    gamingValidation.customerName !== String(gamingValidation.customerId ?? "").trim() ? (
+                      <p className="text-xs text-green-700">Name: {gamingValidation.customerName}</p>
+                    ) : null}
+                    <p className="text-xs text-green-700">Customer ID: {gamingValidation.customerId}</p>
+                    <p className="text-xs text-green-700">Provider: {gamingValidation.service}</p>
+                    <p className="text-xs text-green-700">Minimum top-up: ₦{gamingValidation.minimumAmount.toLocaleString()}</p>
+                  </div>
+                )}
+              </div>
             )}
 
             {/* Meter Type Selector for Electricity */}
@@ -2336,9 +2554,9 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
               </>
             )}
 
-            {selectedCategory !== "transfer" && (ngnAmount || ((selectedCategory === "airtime" || selectedCategory === "electricity") && calculatedTokenAmount)) && (
+            {selectedCategory !== "transfer" && (ngnAmount || ((selectedCategory === "airtime" || selectedCategory === "electricity" || selectedCategory === "gaming") && calculatedTokenAmount)) && (
               <div className="text-left p-3 bg-gray-50 rounded-2xl border border-gray-200">
-                {(selectedCategory === "airtime" || selectedCategory === "electricity") && calculatedTokenAmount ? (
+                {(selectedCategory === "airtime" || selectedCategory === "electricity" || selectedCategory === "gaming") && calculatedTokenAmount ? (
                   <>
                     <p className="text-sm text-gray-600 mb-1">You will be charged</p>
                     <p className="text-xl font-semibold text-gray-900">
@@ -2370,6 +2588,9 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
                             // If no size found, show description
                             return bundle.description;
                           }
+                        }
+                        if (selectedCategory === "gaming") {
+                          return `₦${ngnAmount?.toLocaleString()} wallet top-up`;
                         }
                         // For other categories, show NGN amount
                         return `₦${ngnAmount?.toLocaleString()} NGN ${selectedCategory === "electricity" ? "electricity" : selectedCategory === "cable_tv" ? "cable subscription" : "credit"}`;
@@ -2405,7 +2626,7 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
                 const inputAmount = parseFloat(selectedAmount || "0");
                 if (isNaN(inputAmount) || inputAmount <= 0) return true;
                 let tokenAmountToCheck: number;
-                if ((selectedCategory === "airtime" || selectedCategory === "electricity")) {
+                if ((selectedCategory === "airtime" || selectedCategory === "electricity" || selectedCategory === "gaming")) {
                   if (calculatedTokenAmount !== null) {
                     tokenAmountToCheck = calculatedTokenAmount;
                   } else if (exchangeRate) {
@@ -2436,6 +2657,11 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
               (selectedCategory === "electricity" && (() => {
                 const inputNgnAmount = parseFloat(selectedAmount || "0");
                 return !isNaN(inputNgnAmount) && inputNgnAmount < 1000;
+              })()) ||
+              (selectedCategory === "gaming" && !gamingValidation) ||
+              (selectedCategory === "gaming" && gamingValidation && (() => {
+                const inputNgnAmount = parseFloat(selectedAmount || "0");
+                return !isNaN(inputNgnAmount) && inputNgnAmount < gamingValidation.minimumAmount;
               })()) ||
               // Validate smart card and package for cable TV
               (selectedCategory === "cable_tv" && !smartCardValidation) ||

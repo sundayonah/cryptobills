@@ -9,6 +9,7 @@
 import { encodeFunctionData, erc20Abi, type Address, createPublicClient, http, type Hash } from 'viem';
 import { SUPPORTED_NETWORKS } from './networks';
 import config from './config';
+import { getViemChain } from './utils';
 
 function buildPublicRpcByChain(): Record<number, string> {
   const alchemy = config.alchemy_api_key?.trim();
@@ -16,7 +17,6 @@ function buildPublicRpcByChain(): Record<number, string> {
     8453: alchemy ? `https://base-mainnet.g.alchemy.com/v2/${alchemy}` : 'https://mainnet.base.org',
     137: alchemy ? `https://polygon-mainnet.g.alchemy.com/v2/${alchemy}` : 'https://rpc.ankr.com/polygon',
     42161: alchemy ? `https://arb-mainnet.g.alchemy.com/v2/${alchemy}` : 'https://arb1.arbitrum.io/rpc',
-    // 43114: alchemy ? `https://avax-mainnet.g.alchemy.com/v2/${alchemy}` : 'https://api.avax.network/ext/bc/C/rpc', // add when Avalanche delegation contract deployed
   };
 }
 
@@ -24,6 +24,76 @@ export const PUBLIC_RPC_BY_CHAIN: Record<number, string> = buildPublicRpcByChain
 
 export function getPublicRpcUrl(chainId: number): string | null {
   return PUBLIC_RPC_BY_CHAIN[chainId] ?? null;
+}
+
+/**
+ * Browser-side fallbacks for tx receipt polling only.
+ * Must allow CORS from the app origin — many public RPCs block browsers (401/CORS).
+ */
+const BROWSER_RECEIPT_FALLBACK_RPC_BY_CHAIN: Record<number, string[]> = {
+  137: [
+    'https://polygon-bor.publicnode.com',
+    'https://rpc.ankr.com/polygon',
+  ],
+  42161: [
+    'https://arbitrum-one.publicnode.com',
+    'https://arb1.arbitrum.io/rpc',
+  ],
+};
+
+/** Ordered unique RPC candidates for browser waitForTransactionReceipt fallbacks. */
+export function getBatchNonceRpcCandidates(chainId: number): string[] {
+  const primary = getPublicRpcUrl(chainId);
+  const fallbacks = BROWSER_RECEIPT_FALLBACK_RPC_BY_CHAIN[chainId] ?? [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const u of [primary, ...fallbacks]) {
+    if (!u || !u.trim()) continue;
+    const key = u.trim().toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(u.trim());
+  }
+  return out;
+}
+
+/**
+ * Server-only RPC list for POST /api/chain/batch-nonce (no CORS — can use Ankr, etc.).
+ */
+const SERVER_BATCH_NONCE_FALLBACK_RPC: Record<number, string[]> = {
+  137: [
+    'https://polygon-bor.publicnode.com',
+    'https://rpc.ankr.com/polygon',
+    'https://polygon.drpc.org',
+  ],
+  42161: [
+    'https://arbitrum-one.publicnode.com',
+    'https://arb1.arbitrum.io/rpc',
+    'https://arbitrum.drpc.org',
+  ],
+  8453: ['https://base.llamarpc.com', 'https://mainnet.base.org'],
+};
+
+function dedupeRpcUrls(urls: (string | null | undefined)[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of urls) {
+    if (!raw || !String(raw).trim()) continue;
+    const u = String(raw).trim();
+    const key = u.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(u);
+  }
+  return out;
+}
+
+export function getServerBatchNonceRpcCandidates(chainId: number): string[] {
+  const envUrl = typeof process !== 'undefined' ? process.env[`RPC_URL_${chainId}`]?.trim() : '';
+  const primary = getPublicRpcUrl(chainId);
+  const fallbacks = SERVER_BATCH_NONCE_FALLBACK_RPC[chainId] ?? [];
+  // Same pattern as Polygon/Arbitrum: env override, then primary, then fallbacks
+  return dedupeRpcUrls([envUrl, primary, ...fallbacks]);
 }
 
 // ============================================
@@ -91,23 +161,70 @@ export async function checkTokenBalance(
     }
 }
 
+type ConfirmedReceipt = { status: 'success' | 'failed'; blockNumber: bigint };
+
+function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function tryGetReceiptFromRpc(
+    txHash: Hash,
+    chainId: number,
+    rpcUrl: string
+): Promise<ConfirmedReceipt | null> {
+    const chain = getViemChain(chainId);
+    if (!chain) return null;
+    try {
+        const client = createPublicClient({
+            chain,
+            transport: http(rpcUrl, { timeout: 22_000 }),
+        });
+        const receipt = await client.getTransactionReceipt({ hash: txHash });
+        return {
+            status: receipt.status === 'success' ? 'success' : 'failed',
+            blockNumber: receipt.blockNumber,
+        };
+    } catch {
+        return null;
+    }
+}
+
 /**
- * Wait for transaction confirmation using Viem public client
- * 
- * @param txHash - Transaction hash
- * @param chainId - Network chain ID
- * @param maxAttempts - Maximum number of attempts (default: 20)
- * @param delayMs - Delay between attempts in milliseconds (default: 3000)
- * @returns Transaction receipt with status
+ * After primary wait times out, poll multiple RPCs (Polygon is often slow or flaky in browser).
+ * Without a receipt the app never calls purchase APIs - user pays on-chain but gets no service.
+ */
+async function pollReceiptAcrossRpcs(
+    txHash: Hash,
+    chainId: number,
+    totalMs: number,
+    intervalMs: number
+): Promise<ConfirmedReceipt | null> {
+    const urls = getBatchNonceRpcCandidates(chainId);
+    if (urls.length === 0) return null;
+    const deadline = Date.now() + totalMs;
+    let round = 0;
+    while (Date.now() < deadline) {
+        const url = urls[round % urls.length];
+        round++;
+        const r = await tryGetReceiptFromRpc(txHash, chainId, url);
+        if (r) return r;
+        await sleep(intervalMs);
+    }
+    return null;
+}
+
+/**
+ * Wait for transaction confirmation using Viem public client.
+ *
+ * @param maxAttempts - With delayMs, sets minimum wait budget when chain-specific floor applies
  */
 export async function waitForTransactionConfirmation(
     txHash: Hash,
     chainId: number,
     maxAttempts: number = 20,
     delayMs: number = 3000
-): Promise<{ status: 'success' | 'failed'; blockNumber: bigint }> {
-    // Prefer public RPC for confirmation to avoid 401 (Alchemy etc. may restrict browser origins)
-    const network = SUPPORTED_NETWORKS.find(n => n.id === chainId);
+): Promise<ConfirmedReceipt> {
+    const network = SUPPORTED_NETWORKS.find((n) => n.id === chainId);
     if (!network) {
         throw new Error(`Network configuration not found for chain ID ${chainId}`);
     }
@@ -116,41 +233,61 @@ export async function waitForTransactionConfirmation(
         throw new Error(`No RPC configured for chain ID ${chainId}`);
     }
 
+    const chain = getViemChain(chainId);
     const publicClient = createPublicClient({
-        transport: http(rpcUrl),
+        ...(chain ? { chain } : {}),
+        transport: http(rpcUrl, { timeout: 25_000 }),
     });
 
-    // Wait for transaction receipt
+    const baseTimeout = maxAttempts * delayMs;
+    const waitTimeoutMs =
+        chainId === 137 ? Math.max(baseTimeout, 200_000)
+        : chainId === 42161 ? Math.max(baseTimeout, 120_000)
+        : baseTimeout;
+
+    const extraPollMs =
+        chainId === 137 ? 180_000
+        : chainId === 42161 ? 90_000
+        : 60_000;
+    const pollIntervalMs = chainId === 137 ? 4_000 : 3_500;
+
     try {
         const receipt = await publicClient.waitForTransactionReceipt({
             hash: txHash,
-            timeout: maxAttempts * delayMs, // Total timeout
-            confirmations: 1, // Wait for 1 confirmation
+            timeout: waitTimeoutMs,
+            confirmations: 1,
         });
 
         return {
             status: receipt.status === 'success' ? 'success' : 'failed',
             blockNumber: receipt.blockNumber,
         };
-    } catch (error: any) {
-        // If timeout or other error, check transaction status
+    } catch {
+        const urls = getBatchNonceRpcCandidates(chainId);
+        for (const url of urls) {
+            const r = await tryGetReceiptFromRpc(txHash, chainId, url);
+            if (r) return r;
+        }
+
         try {
             const tx = await publicClient.getTransaction({ hash: txHash });
-            if (tx && tx.blockNumber) {
-                // Transaction is in a block, try to get receipt
+            if (tx?.blockNumber) {
                 const receipt = await publicClient.getTransactionReceipt({ hash: txHash });
                 return {
                     status: receipt.status === 'success' ? 'success' : 'failed',
                     blockNumber: receipt.blockNumber,
                 };
             }
-        } catch (checkError) {
-            // Transaction might not be confirmed yet
+        } catch {
+            // ignore
         }
 
+        const polled = await pollReceiptAcrossRpcs(txHash, chainId, extraPollMs, pollIntervalMs);
+        if (polled) return polled;
+
         throw new Error(
-            `Transaction confirmation timeout after ${maxAttempts} attempts. ` +
-            `Please check the transaction manually: ${txHash}`
+            `Transaction confirmation timed out after extended wait (${Math.round((waitTimeoutMs + extraPollMs) / 1000)}s). ` +
+            `Check the block explorer if the chain succeeded, then contact support with tx: ${txHash}`
         );
     }
 }

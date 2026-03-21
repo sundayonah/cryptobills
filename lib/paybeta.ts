@@ -71,7 +71,9 @@ export interface CryptoBilzClient {
  * Create axios instance with configuration
  */
 function createAxiosInstance(apiKey: string): AxiosInstance {
-  // Remove trailing slashes from base URL (axios handles path joining)
+  // Remove trailing slashes from base URL (axios handles path joining).
+  // Typical: PAYBETA_BASE_URL=https://api.paybeta.ng/v2 — then use paths like /gaming/validate
+  // (full URL https://api.paybeta.ng/v2/gaming/validate). Do not prefix paths with /v2 again.
   const baseURL = config.paybeta_base_url.replace(/\/+$/, '');
 
   if (!baseURL) {

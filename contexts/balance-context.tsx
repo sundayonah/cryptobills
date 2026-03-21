@@ -57,7 +57,6 @@ const SUPPORTED_CHAIN_IDS = [
   8453,   // Base Mainnet
   137,    // Polygon Mainnet
   42161,  // Arbitrum Mainnet
-  // 43114,  // Avalanche C-Chain Mainnet - add when delegation contract deployed
 ];
 
 // RPC URLs for each chain - using Alchemy as primary with fallbacks
@@ -77,11 +76,6 @@ const RPC_URLS: Record<number, string[]> = {
     "https://arbitrum.llamarpc.com", // Fallback
     "https://arb1.arbitrum.io/rpc",
   ],
-  43114: [
-    "https://avax-mainnet.g.alchemy.com/v2/f9VLG4qggmoQThJmgLuSA", // Alchemy Primary
-    "https://avalanche.public-rpc.com", // Fallback
-    "https://api.avax.network/ext/bc/C/rpc",
-  ],
 };
 
 // Cache for balance requests
@@ -94,7 +88,6 @@ const getChainName = (chainId: number): string => {
     8453: 'Base',
     137: 'Polygon',
     42161: 'Arbitrum',
-    // 43114: 'Avalanche',
   };
   return chainNames[chainId] || `Chain ${chainId}`;
 };
