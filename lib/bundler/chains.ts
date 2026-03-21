@@ -6,7 +6,6 @@
 import { createPublicClient, createWalletClient, http, type PublicClient, type WalletClient } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { arbitrum, polygon, type Chain } from 'viem/chains';
-// import { avalanche } from 'viem/chains'; // add when Avalanche delegation contract is deployed
 import { getNetworkById } from '@/lib/networks';
 import config from '@/lib/config';
 
@@ -14,7 +13,6 @@ import config from '@/lib/config';
 const SUPPORTED_CHAINS: Record<number, { chain: Chain; envKey: string }> = {
   [polygon.id]: { chain: polygon, envKey: 'POLYGON' },
   [arbitrum.id]: { chain: arbitrum, envKey: 'ARB' },
-  // [avalanche.id]: { chain: avalanche, envKey: 'AVALANCHE' }, // add when delegation contract deployed
 };
 
 export function parseChainId(value: unknown): number {

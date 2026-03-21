@@ -25,7 +25,6 @@ export function getNetworkLogoPath(network: Network | string | number): string {
     polygon: "/logos/polygon-logo.svg",
     arbitrum: "/logos/arbitrum-one-logo.svg",
     base: "/logos/base-logo.svg",
-    avalanche: "/logos/avalanche-avax-logo.svg",
     bsc: "/logos/bnb-smart-chain-logo.svg",
   };
 

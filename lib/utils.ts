@@ -1,13 +1,11 @@
 import { type ClassValue, clsx } from "clsx"
 import { twMerge } from "tailwind-merge"
 import { base, polygon, arbitrum, type Chain } from "viem/chains"
-// import { avalanche } from "viem/chains" // add when Avalanche delegation contract deployed
 
 const CHAINS_BY_ID: Record<number, Chain> = {
   [base.id]: base,
   [polygon.id]: polygon,
   [arbitrum.id]: arbitrum,
-  // [avalanche.id]: avalanche,
 }
 
 /**
@@ -77,8 +75,8 @@ export async function copyToClipboard(text: string): Promise<boolean> {
 
 /**
  * Get blockchain explorer link for a transaction
- * Only supports: Base, Polygon, Avalanche, Arbitrum
- * @param network - The network name (e.g., "Polygon", "Base", "Arbitrum", "Avalanche")
+ * Only supports: Base, Polygon, Arbitrum
+ * @param network - The network name (e.g., "Polygon", "Base", "Arbitrum")
  * @param txHash - The transaction hash
  * @returns Explorer URL or null if network is not supported
  */
@@ -95,8 +93,6 @@ export function getExplorerLink(network: string | null | undefined, txHash: stri
     case "Arbitrum":
     case "Arbitrum One":
       return `https://arbiscan.io/tx/${txHash}`;
-    case "Avalanche":
-      return `https://snowtrace.io/tx/${txHash}`;
     default:
       return null;
   }
@@ -110,5 +106,5 @@ export function getExplorerLink(network: string | null | undefined, txHash: stri
 export function isSupportedNetwork(network: string | null | undefined): boolean {
   if (!network) return false;
   const normalizedNetwork = network.trim();
-  return ["Polygon", "Base", "Arbitrum", "Arbitrum One", "Avalanche"].includes(normalizedNetwork);
+  return ["Polygon", "Base", "Arbitrum", "Arbitrum One"].includes(normalizedNetwork);
 }

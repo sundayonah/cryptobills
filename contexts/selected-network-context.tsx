@@ -8,7 +8,7 @@ import {
   type ReactNode,
 } from "react";
 
-const SUPPORTED_CHAIN_IDS = [8453, 137, 42161]; // Base, Polygon, Arbitrum. Add 43114 when Avalanche delegation contract deployed
+const SUPPORTED_CHAIN_IDS = [8453, 137, 42161]; // Base, Polygon, Arbitrum
 const DEFAULT_CHAIN_ID = 8453;
 
 interface SelectedNetworkContextType {

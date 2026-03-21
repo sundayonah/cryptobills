@@ -3,7 +3,7 @@
  * Digest and encoding match ProviderBatchCallAndSponsor.sol:
  *   encodedCalls = abi.encodePacked(calls[i].to, calls[i].value, calls[i].data) per call
  *   digest = keccak256(abi.encodePacked(nonce, encodedCalls))
- *   User signs digest via personal_sign; contract uses ECDSA.toEthSignedMessageHash(digest).
+ *   User signs digest via personal_sign; contract uses MessageHashUtils.toEthSignedMessageHash(digest).
  */
 import {
   encodeFunctionData,
@@ -54,7 +54,7 @@ export type BatchCall = {
 
 /**
  * Build the digest that must be signed for execute(calls, signature).
- * User signs this digest with personal_sign; contract verifies with ECDSA.toEthSignedMessageHash(digest).
+ * User signs this digest with personal_sign; contract verifies with MessageHashUtils.toEthSignedMessageHash(digest).
  */
 export function buildBatchDigest(nonce: bigint, calls: BatchCall[]): Hash {
   const nonceHex = padHex(toHex(nonce), { size: 32 });
@@ -100,6 +100,31 @@ export async function readBatchNonce(
     abi: NONCE_ABI,
     functionName: "nonce",
   });
+}
+
+/**
+ * Resolve batch nonce via same-origin API (server performs eth_getCode / nonce — no browser CORS).
+ */
+export async function resolveBatchNonceForSigning(params: {
+  chainId: number;
+  accountAddress: Address;
+}): Promise<bigint> {
+  const res = await fetch("/api/chain/batch-nonce", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      chainId: params.chainId,
+      accountAddress: params.accountAddress,
+    }),
+  });
+  const data = (await res.json().catch(() => ({}))) as { nonce?: string; error?: string };
+  if (!res.ok) {
+    throw new Error(data.error || `Batch nonce request failed (${res.status})`);
+  }
+  if (data.nonce === undefined || !/^\d+$/.test(data.nonce)) {
+    throw new Error("Invalid batch-nonce response from server");
+  }
+  return BigInt(data.nonce);
 }
 
 export { PROVIDER_BATCH_EXECUTE_ABI, NONCE_ABI };

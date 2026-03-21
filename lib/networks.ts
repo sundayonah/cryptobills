@@ -21,7 +21,6 @@ const rpc = {
   base: alchemy ? `https://base-mainnet.g.alchemy.com/v2/${alchemy}` : 'https://mainnet.base.org',
   polygon: alchemy ? `https://polygon-mainnet.g.alchemy.com/v2/${alchemy}` : 'https://rpc.ankr.com/polygon',
   arbitrum: alchemy ? `https://arb-mainnet.g.alchemy.com/v2/${alchemy}` : 'https://arb1.arbitrum.io/rpc',
-  avalanche: alchemy ? `https://avax-mainnet.g.alchemy.com/v2/${alchemy}` : 'https://api.avax.network/ext/bc/C/rpc',
 };
 
 export const SUPPORTED_NETWORKS: Network[] = [
@@ -58,18 +57,6 @@ export const SUPPORTED_NETWORKS: Network[] = [
     },
     rpcUrl: rpc.arbitrum,
   },
-  // Avalanche: add when delegation contract is deployed
-  // {
-  //   id: 43114,
-  //   name: 'Avalanche',
-  //   chainId: 'eip155:43114',
-  //   nativeCurrency: {
-  //     name: 'Avalanche',
-  //     symbol: 'AVAX',
-  //     decimals: 18,
-  //   },
-  //   rpcUrl: rpc.avalanche,
-  // },
   // {
   //   id: 1,
   //   name: 'Ethereum',
