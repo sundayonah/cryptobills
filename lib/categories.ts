@@ -45,7 +45,7 @@ export const UTILITY_CATEGORIES: CategoryConfig[] = [
   {
     id: 'gaming',
     name: 'Gaming',
-    enabled: false,
+    enabled: true,
     apiPath: '/gaming',
   },
   {
