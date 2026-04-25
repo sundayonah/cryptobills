@@ -306,6 +306,7 @@ export interface PayCrestResponse {
 export interface Config {
     paycrest_rate_api: string;
     fallback_rate: number;
+    transaction_rate_adjustment: number;
     paybeta_api_key: string;
     paybeta_base_url: string;
     payment_recipient_address: string;

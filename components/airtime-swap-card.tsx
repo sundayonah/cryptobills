@@ -249,6 +249,11 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
   const selectedService = watch("service");
   const phoneNumber = watch("phoneNumber");
   const recipientAddress = watch("recipientAddress");
+  const applyRateAdjustment = useCallback(
+    (tokenAmount: number) =>
+      tokenAmount * (1 + config.transaction_rate_adjustment),
+    []
+  );
 
   // Get current balance for selected token (from the chosen wallet)
   const currentBalance = paymentOption === 'external'
@@ -451,9 +456,9 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
           // Set amount to bundle price in NGN (convert from string to number)
           const bundlePrice = parseFloat(data.data.packages[0].price);
           if (!isNaN(bundlePrice) && bundlePrice > 0 && exchangeRate) {
-            // Calculate exact token amount needed for exact NGN price
+            // Calculate token amount with rate adjustment for exact NGN service price
             const rate = selectedToken === "USDC" ? exchangeRate.usdcToNgn : exchangeRate.usdtToNgn;
-            const exactTokenAmount = (bundlePrice / rate).toFixed(8); // Use 8 decimals for precision
+            const exactTokenAmount = applyRateAdjustment(bundlePrice / rate).toFixed(8); // Use 8 decimals for precision
             setValue("amount", exactTokenAmount);
           }
         }
@@ -480,7 +485,7 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
     } finally {
       setLoadingBundles(false);
     }
-  }, [selectedCategory, setValue, toast, exchangeRate, selectedToken]);
+  }, [selectedCategory, setValue, toast, exchangeRate, selectedToken, applyRateAdjustment]);
 
   // Fetch cable TV packages
   const fetchPackages = useCallback(async (service: string) => {
@@ -507,9 +512,9 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
           // Set amount to package price in NGN (convert from string to number)
           const packagePrice = parseFloat(data.data.packages[0].price);
           if (!isNaN(packagePrice) && packagePrice > 0 && exchangeRate) {
-            // Calculate exact token amount needed for exact NGN price
+            // Calculate token amount with rate adjustment for exact NGN service price
             const rate = selectedToken === "USDC" ? exchangeRate.usdcToNgn : exchangeRate.usdtToNgn;
-            const exactTokenAmount = (packagePrice / rate).toFixed(8); // Use 8 decimals for precision
+            const exactTokenAmount = applyRateAdjustment(packagePrice / rate).toFixed(8); // Use 8 decimals for precision
             setValue("amount", exactTokenAmount);
           }
         }
@@ -534,7 +539,7 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
     } finally {
       setLoadingCablePackages(false);
     }
-  }, [selectedCategory, setValue, toast, exchangeRate, selectedToken]);
+  }, [selectedCategory, setValue, toast, exchangeRate, selectedToken, applyRateAdjustment]);
 
   // Validate smart card for cable TV
   const validateSmartCard = useCallback(async (service: string, smartCardNumber: string) => {
@@ -857,7 +862,7 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
           const bundlePrice = parseFloat(bundle.price);
           if (!isNaN(bundlePrice) && bundlePrice > 0) {
             const rate = selectedToken === "USDC" ? exchangeRate.usdcToNgn : exchangeRate.usdtToNgn;
-            const exactTokenAmount = (bundlePrice / rate).toFixed(20);
+            const exactTokenAmount = applyRateAdjustment(bundlePrice / rate).toFixed(20);
             setValue("amount", exactTokenAmount);
             // Trigger revalidation to clear any validation errors
             trigger("amount");
@@ -869,7 +874,7 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
           const packagePrice = parseFloat(pkg.price);
           if (!isNaN(packagePrice) && packagePrice > 0) {
             const rate = selectedToken === "USDC" ? exchangeRate.usdcToNgn : exchangeRate.usdtToNgn;
-            const exactTokenAmount = (packagePrice / rate).toFixed(20);
+            const exactTokenAmount = applyRateAdjustment(packagePrice / rate).toFixed(20);
             setValue("amount", exactTokenAmount);
             // Trigger revalidation to clear any validation errors
             trigger("amount");
@@ -877,7 +882,7 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
         }
       }
     }
-  }, [selectedToken, exchangeRate, selectedBundle, selectedPackage, selectedCategory, bundles, cablePackages, setValue, trigger]);
+  }, [selectedToken, exchangeRate, selectedBundle, selectedPackage, selectedCategory, bundles, cablePackages, setValue, trigger, applyRateAdjustment]);
 
   // Calculate amounts based on category
   // For airtime: selectedAmount is NGN, calculate tokenAmount
@@ -891,7 +896,7 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
         if (selectedCategory === "airtime" || selectedCategory === "electricity" || selectedCategory === "gaming") {
           // For airtime, electricity, gaming: amount is NGN (integer), calculate tokenAmount
           const ngnAmountInt = Math.round(amount); // Ensure integer (input should already be integer)
-          const tokenAmt = ngnAmountInt / rate;
+          const tokenAmt = applyRateAdjustment(ngnAmountInt / rate);
           setNgnAmount(ngnAmountInt); // Store NGN amount (integer)
           setCalculatedTokenAmount(tokenAmt); // Store calculated token amount
         } else {
@@ -907,7 +912,7 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
       setNgnAmount(null);
       setCalculatedTokenAmount(null);
     }
-  }, [selectedToken, selectedAmount, exchangeRate, selectedCategory]);
+  }, [selectedToken, selectedAmount, exchangeRate, selectedCategory, applyRateAdjustment]);
 
   // Helper function to reset form based on category
   const resetForm = useCallback(() => {
@@ -949,7 +954,7 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
         const bundlePrice = parseFloat(bundle.price);
         if (!isNaN(bundlePrice) && bundlePrice > 0 && exchangeRate) {
           const rate = selectedToken === "USDC" ? exchangeRate.usdcToNgn : exchangeRate.usdtToNgn;
-          const exactTokenAmount = (bundlePrice / rate).toFixed(20);
+          const exactTokenAmount = applyRateAdjustment(bundlePrice / rate).toFixed(20);
           setValue("amount", exactTokenAmount);
           data.amount = exactTokenAmount;
           await trigger("amount");
@@ -962,7 +967,7 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
         const packagePrice = parseFloat(pkg.price);
         if (!isNaN(packagePrice) && packagePrice > 0 && exchangeRate) {
           const rate = selectedToken === "USDC" ? exchangeRate.usdcToNgn : exchangeRate.usdtToNgn;
-          const exactTokenAmount = (packagePrice / rate).toFixed(20);
+          const exactTokenAmount = applyRateAdjustment(packagePrice / rate).toFixed(20);
           setValue("amount", exactTokenAmount);
           data.amount = exactTokenAmount;
           await trigger("amount");
@@ -1095,13 +1100,14 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
       } else if (exchangeRate) {
         // Compute on the fly if rate is available
         const rate = selectedToken === "USDC" ? exchangeRate.usdcToNgn : exchangeRate.usdtToNgn;
-        tokenAmountToCheck = inputAmount / rate;
+        tokenAmountToCheck = applyRateAdjustment(inputAmount / rate);
       } else {
         // Rate not ready, skip balance check (will fail validation elsewhere)
         tokenAmountToCheck = 0;
       }
     } else {
-      tokenAmountToCheck = inputAmount;
+      tokenAmountToCheck =
+        selectedCategory === "transfer" ? inputAmount : applyRateAdjustment(inputAmount);
     }
 
     if (tokenAmountToCheck > balanceAmount) {
@@ -1381,13 +1387,14 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
             } else {
               rate = await convertToNGN("1", data.token);
             }
-            const calculatedToken = ngnAmount / rate;
+            const calculatedToken = applyRateAdjustment(ngnAmount / rate);
             tokenAmountForTransfer = calculatedToken.toFixed(20);
           }
           setNgnAmount(ngnAmount); // Store NGN amount (integer)
         } else {
-          // For other categories: data.amount is tokenAmount, convert to NGN
-          tokenAmountForTransfer = data.amount;
+          // For other categories: apply rate adjustment to token amount before transfer
+          const rateAdjustedTokenAmount = applyRateAdjustment(parseFloat(data.amount));
+          tokenAmountForTransfer = rateAdjustedTokenAmount.toFixed(20);
           ngnAmount = await convertToNGN(data.amount, data.token);
           setNgnAmount(ngnAmount);
         }
@@ -1976,7 +1983,7 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
                     const bundlePrice = parseFloat(bundle.price);
                     if (!isNaN(bundlePrice) && bundlePrice > 0) {
                       const rate = selectedToken === "USDC" ? exchangeRate.usdcToNgn : exchangeRate.usdtToNgn;
-                      const exactTokenAmount = (bundlePrice / rate).toFixed(8); // Use 8 decimals for precision
+                      const exactTokenAmount = applyRateAdjustment(bundlePrice / rate).toFixed(8); // Use 8 decimals for precision
                       setValue("amount", exactTokenAmount);
                     }
                   }
@@ -2048,7 +2055,7 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
                     const packagePrice = parseFloat(pkg.price);
                     if (!isNaN(packagePrice) && packagePrice > 0) {
                       const rate = selectedToken === "USDC" ? exchangeRate.usdcToNgn : exchangeRate.usdtToNgn;
-                      const exactTokenAmount = (packagePrice / rate).toFixed(8); // Use 8 decimals for precision
+                      const exactTokenAmount = applyRateAdjustment(packagePrice / rate).toFixed(8); // Use 8 decimals for precision
                       setValue("amount", exactTokenAmount);
                     }
                   }
@@ -2400,13 +2407,14 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
               } else if (exchangeRate) {
                 // Compute on the fly if rate is available
                 const rate = selectedToken === "USDC" ? exchangeRate.usdcToNgn : exchangeRate.usdtToNgn;
-                tokenAmountToCheck = inputAmount / rate;
+                tokenAmountToCheck = applyRateAdjustment(inputAmount / rate);
               } else {
                 // Rate not ready, skip balance check
                 tokenAmountToCheck = 0;
               }
             } else {
-              tokenAmountToCheck = inputAmount;
+              tokenAmountToCheck =
+                selectedCategory === "transfer" ? inputAmount : applyRateAdjustment(inputAmount);
             }
 
             if (tokenAmountToCheck > balanceAmount) {
@@ -2632,13 +2640,14 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
                   } else if (exchangeRate) {
                     // Compute on the fly if rate is available
                     const rate = selectedToken === "USDC" ? exchangeRate.usdcToNgn : exchangeRate.usdtToNgn;
-                    tokenAmountToCheck = inputAmount / rate;
+                    tokenAmountToCheck = applyRateAdjustment(inputAmount / rate);
                   } else {
                     // Rate not ready, skip balance check
                     tokenAmountToCheck = 0;
                   }
                 } else {
-                  tokenAmountToCheck = inputAmount;
+                  tokenAmountToCheck =
+                    selectedCategory === "transfer" ? inputAmount : applyRateAdjustment(inputAmount);
                 }
                 return tokenAmountToCheck > balanceAmount;
               })() ||

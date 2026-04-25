@@ -12,6 +12,7 @@ const config: Config = {
     min_amount: parseFloat(process.env.NEXT_PUBLIC_MIN_AMOUNT || '0.1'),
     max_amount: parseFloat(process.env.NEXT_PUBLIC_MAX_AMOUNT || '1000'),
     fallback_rate: parseFloat(process.env.NEXT_PUBLIC_FALLBACK_RATE || '0'),
+    transaction_rate_adjustment: parseFloat(process.env.NEXT_PUBLIC_TRANSACTION_RATE_ADJUSTMENT || ''),
     paycrest_rate_api: process.env.NEXT_PUBLIC_PAYCREST_RATE_API || '',
     payment_recipient_address: process.env.NEXT_PUBLIC_PAYMENT_RECIPIENT_ADDRESS || '',
     alchemy_api_key: process.env.ALCHEMY_API_KEY || '',
