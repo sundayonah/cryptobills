@@ -891,7 +891,12 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
         if (selectedCategory === "airtime" || selectedCategory === "electricity" || selectedCategory === "gaming") {
           // For airtime, electricity, gaming: amount is NGN (integer), calculate tokenAmount
           const ngnAmountInt = Math.round(amount); // Ensure integer (input should already be integer)
-          const tokenAmt = ngnAmountInt / rate;
+          console.log("ngnAmountInt", ngnAmountInt);
+
+          const markupPercent = 0.05;
+          const baseTokenAmt = ngnAmountInt / rate;
+          const tokenAmt = baseTokenAmt * (1 + markupPercent);
+          console.log("tokenAmt", tokenAmt);
           setNgnAmount(ngnAmountInt); // Store NGN amount (integer)
           setCalculatedTokenAmount(tokenAmt); // Store calculated token amount
         } else {
