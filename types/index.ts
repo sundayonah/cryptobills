@@ -305,6 +305,11 @@ export interface PayCrestResponse {
 
 export interface Config {
     paycrest_rate_api: string;
+    paycrest_onramp_api_url: string;
+    paycrest_sender_api_key: string;
+    paycrest_refund_institution: string;
+    paycrest_refund_account_number: string;
+    paycrest_refund_account_name: string;
     fallback_rate: number;
     transaction_rate_adjustment: number;
     paybeta_api_key: string;
