@@ -3,7 +3,19 @@
 import { useState, useEffect, useCallback } from "react";
 import { usePrivy } from "@privy-io/react-auth";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, LogOut, Clock, CheckCircle, XCircle, Loader2, Copy, Check, RefreshCw, ExternalLink } from "lucide-react";
+import {
+    X,
+    LogOut,
+    Clock,
+    CheckCircle,
+    XCircle,
+    Loader2,
+    Copy,
+    Check,
+    RefreshCw,
+    ExternalLink,
+    ChevronDown,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { copyToClipboard, getExplorerLink, isSupportedNetwork } from "@/lib/utils";
@@ -44,6 +56,18 @@ export function TransactionHistoryDrawer({ isOpen, onClose }: TransactionHistory
     const [loading, setLoading] = useState(false);
     const [copied, setCopied] = useState<string | null>(null);
     const [syncingTxId, setSyncingTxId] = useState<string | null>(null);
+    const [expandedTxIds, setExpandedTxIds] = useState<Set<string>>(() => new Set());
+
+    const isTxExpanded = (id: string) => expandedTxIds.has(id);
+
+    const toggleTxExpanded = (id: string) => {
+        setExpandedTxIds((prev) => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
+            return next;
+        });
+    };
 
     const fetchTransactions = useCallback(async () => {
         if (!user) return;
@@ -101,6 +125,12 @@ export function TransactionHistoryDrawer({ isOpen, onClose }: TransactionHistory
             fetchTransactions();
         }
     }, [isOpen, authenticated, user, fetchTransactions]);
+
+    useEffect(() => {
+        if (!isOpen) {
+            setExpandedTxIds(new Set());
+        }
+    }, [isOpen]);
 
     const handleCopy = async (text: string, id: string, label: string = "Reference") => {
         const success = await copyToClipboard(text);
@@ -268,145 +298,198 @@ export function TransactionHistoryDrawer({ isOpen, onClose }: TransactionHistory
                                 </div>
                             ) : (
                                 <div className="space-y-3">
-                                    {transactions.map((tx) => (
+                                    {transactions.map((tx) => {
+                                        const expanded = isTxExpanded(tx.id);
+                                        return (
                                         <motion.div
                                             key={tx.id}
                                             initial={{ opacity: 0, y: 10 }}
                                             animate={{ opacity: 1, y: 0 }}
-                                            className="border border-gray-200 rounded-2xl p-4 hover:shadow-md transition-shadow"
+                                            className="overflow-hidden rounded-2xl border border-gray-200 transition-shadow hover:shadow-md"
                                         >
-                                            {/* Header with status */}
-                                            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 mb-3">
-                                                <div className="flex-1 min-w-0">
-                                                    <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2 mb-1">
-                                                        <h3 className="font-semibold text-gray-900">{getCategoryLabel(tx.category)}</h3>
-                                                        {tx.serviceName && (
-                                                            <span className="text-sm text-gray-500">• {tx.serviceName}</span>
-                                                        )}
-                                                    </div>
-                                                    <p className="text-sm text-gray-600 break-all">{getRecipientDisplay(tx)}</p>
-                                                </div>
-                                                <div className={`flex items-center gap-1.5 px-2 py-1 rounded border text-xs font-medium w-fit ${getStatusColor(tx.status)}`}>
-                                                    {getStatusIcon(tx.status)}
-                                                    <span className="capitalize">{tx.status}</span>
-                                                </div>
-                                            </div>
-
-                                            {/* Amount */}
-                                            <div className="flex items-center justify-between gap-4 mb-3 pb-3 border-b border-gray-100">
-                                                <div className="flex-1 min-w-0">
-                                                    <p className="text-xs text-gray-500">Amount Paid</p>
-                                                    <p className="text-lg font-bold text-gray-900">₦{(tx.serviceAmount ?? tx.ngnAmount ?? 0).toLocaleString()}</p>
-                                                </div>
-                                                {tx.category !== "gaming" && (
-                                                    <div className="text-right flex-shrink-0">
-                                                        <p className="text-xs text-gray-500">Token</p>
-                                                        <p className="text-sm font-semibold text-gray-700 whitespace-nowrap">
-                                                            {(() => {
-                                                                const tokenAmount = parseFloat(tx.tokenAmount);
-                                                                return isFinite(tokenAmount) ? tokenAmount.toFixed(8) : "0.00000000";
-                                                            })()} {tx.token}
+                                            <button
+                                                type="button"
+                                                onClick={() => toggleTxExpanded(tx.id)}
+                                                aria-expanded={expanded}
+                                                className="w-full p-4 text-left hover:bg-gray-50/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-300 focus-visible:ring-inset"
+                                            >
+                                                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                                    <div className="min-w-0 flex-1">
+                                                        <div className="mb-1 flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
+                                                            <h3 className="font-semibold text-gray-900">
+                                                                {getCategoryLabel(tx.category)}
+                                                            </h3>
+                                                            {tx.serviceName && (
+                                                                <span className="text-sm text-gray-500">• {tx.serviceName}</span>
+                                                            )}
+                                                        </div>
+                                                        <p className="text-sm text-gray-600 break-all">
+                                                            {getRecipientDisplay(tx)}
                                                         </p>
                                                     </div>
-                                                )}
-                                            </div>
-
-                                            {/* Details */}
-                                            <div className="space-y-2">
-                                                {tx.category !== "gaming" && tx.electricityToken && (
-                                                    <div className="flex items-center justify-between text-sm gap-2">
-                                                        <span className="text-gray-600">Token:</span>
-                                                        <button
-                                                            onClick={() => handleCopy(tx.electricityToken!, `${tx.id}-token`, "Token")}
-                                                            className="flex items-center gap-1 text-purple-600 hover:text-purple-700 font-mono font-semibold break-all text-right"
-                                                            title="Copy token"
+                                                    <div className="flex shrink-0 items-center gap-2 self-start sm:self-auto">
+                                                        <div
+                                                            className={`flex w-fit items-center gap-1.5 rounded border px-2 py-1 text-xs font-medium ${getStatusColor(tx.status)}`}
                                                         >
-                                                            <span className="max-w-[200px] truncate sm:max-w-none">{tx.electricityToken}</span>
-                                                            {copied === `${tx.id}-token` ? (
-                                                                <Check className="h-3 w-3 flex-shrink-0" />
+                                                            {getStatusIcon(tx.status)}
+                                                            <span className="capitalize">{tx.status}</span>
+                                                        </div>
+                                                        <ChevronDown
+                                                            className={`h-5 w-5 shrink-0 text-gray-400 transition-transform duration-200 ${expanded ? "rotate-180" : ""}`}
+                                                            aria-hidden
+                                                        />
+                                                    </div>
+                                                </div>
+                                                <div className="mt-3">
+                                                    <p className="text-xs text-gray-500">Amount Paid</p>
+                                                    <p className="text-lg font-bold text-gray-900">
+                                                        ₦{(tx.serviceAmount ?? tx.ngnAmount ?? 0).toLocaleString()}
+                                                    </p>
+                                                </div>
+                                                <p className="mt-2 text-xs text-gray-400">
+                                                    {expanded ? "Tap to hide details" : "Tap to show details"}
+                                                </p>
+                                            </button>
+
+                                            {expanded && (
+                                                <div className="space-y-2 border-t border-gray-100 px-4 pb-4 pt-3">
+                                                    {tx.category !== "gaming" && (
+                                                        <div className="flex items-center justify-between gap-4">
+                                                            <div className="min-w-0 flex-1">
+                                                                <p className="text-xs text-gray-500">Token paid</p>
+                                                                <p className="text-sm font-semibold whitespace-nowrap text-gray-700">
+                                                                    {(() => {
+                                                                        const tokenAmount = parseFloat(tx.tokenAmount);
+                                                                        return isFinite(tokenAmount)
+                                                                            ? tokenAmount.toFixed(8)
+                                                                            : "0.00000000";
+                                                                    })()}{" "}
+                                                                    {tx.token}
+                                                                </p>
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                    {tx.category !== "gaming" && tx.electricityToken && (
+                                                        <div className="flex items-center justify-between gap-2 text-sm">
+                                                            <span className="text-gray-600">Token:</span>
+                                                            <button
+                                                                type="button"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    void handleCopy(
+                                                                        tx.electricityToken!,
+                                                                        `${tx.id}-token`,
+                                                                        "Token"
+                                                                    );
+                                                                }}
+                                                                className="flex min-w-0 items-center gap-1 break-all text-right font-mono font-semibold text-purple-600 hover:text-purple-700"
+                                                                title="Copy token"
+                                                            >
+                                                                <span className="max-w-[200px] truncate sm:max-w-none">
+                                                                    {tx.electricityToken}
+                                                                </span>
+                                                                {copied === `${tx.id}-token` ? (
+                                                                    <Check className="h-3 w-3 shrink-0" />
+                                                                ) : (
+                                                                    <Copy className="h-3 w-3 shrink-0" />
+                                                                )}
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                    {tx.category !== "gaming" && tx.electricityUnit && (
+                                                        <div className="flex items-center justify-between text-sm">
+                                                            <span className="text-gray-600">Units:</span>
+                                                            <span className="font-semibold text-gray-900">
+                                                                {tx.electricityUnit} kWh
+                                                            </span>
+                                                        </div>
+                                                    )}
+                                                    <div className="flex items-center justify-between text-sm">
+                                                        <span className="text-gray-600">Date:</span>
+                                                        <span className="text-gray-900">{formatDate(tx.createdAt)}</span>
+                                                    </div>
+                                                    <div className="flex items-center justify-between gap-2 text-sm">
+                                                        <span className="shrink-0 text-gray-600">Reference:</span>
+                                                        <button
+                                                            type="button"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                void handleCopy(tx.paybetaReference, tx.id, "Reference");
+                                                            }}
+                                                            className="flex min-w-0 items-center gap-1 font-mono text-xs text-purple-600 hover:text-purple-700"
+                                                            title="Copy reference"
+                                                        >
+                                                            <span className="max-w-[150px] truncate sm:max-w-none">
+                                                                {tx.paybetaReference.slice(0, 8)}...
+                                                            </span>
+                                                            {copied === tx.id ? (
+                                                                <Check className="h-3 w-3 shrink-0" />
                                                             ) : (
-                                                                <Copy className="h-3 w-3 flex-shrink-0" />
+                                                                <Copy className="h-3 w-3 shrink-0" />
                                                             )}
                                                         </button>
                                                     </div>
-                                                )}
-                                                {tx.category !== "gaming" && tx.electricityUnit && (
-                                                    <div className="flex items-center justify-between text-sm">
-                                                        <span className="text-gray-600">Units:</span>
-                                                        <span className="font-semibold text-gray-900">{tx.electricityUnit} kWh</span>
-                                                    </div>
-                                                )}
-                                                <div className="flex items-center justify-between text-sm">
-                                                    <span className="text-gray-600">Date:</span>
-                                                    <span className="text-gray-900">{formatDate(tx.createdAt)}</span>
-                                                </div>
-                                                <div className="flex items-center justify-between text-sm gap-2">
-                                                    <span className="text-gray-600 flex-shrink-0">Reference:</span>
-                                                    <button
-                                                        onClick={() => handleCopy(tx.paybetaReference, tx.id, "Reference")}
-                                                        className="flex items-center gap-1 text-purple-600 hover:text-purple-700 font-mono text-xs min-w-0"
-                                                        title="Copy reference"
-                                                    >
-                                                        <span className="truncate max-w-[150px] sm:max-w-none">{tx.paybetaReference.slice(0, 8)}...</span>
-                                                        {copied === tx.id ? (
-                                                            <Check className="h-3 w-3 flex-shrink-0" />
-                                                        ) : (
-                                                            <Copy className="h-3 w-3 flex-shrink-0" />
+                                                    {tx.paymentTxHash &&
+                                                        isSupportedNetwork(tx.networkName) &&
+                                                        getExplorerLink(tx.networkName, tx.paymentTxHash) && (
+                                                            <div className="flex items-center justify-between text-sm">
+                                                                <span className="text-gray-600">View in explorer:</span>
+                                                                <a
+                                                                    href={getExplorerLink(tx.networkName, tx.paymentTxHash)!}
+                                                                    target="_blank"
+                                                                    rel="noopener noreferrer"
+                                                                    onClick={(e) => e.stopPropagation()}
+                                                                    className="flex min-w-0 items-center gap-1 font-mono text-xs text-blue-600 hover:text-blue-700 hover:underline"
+                                                                    title="View on blockchain explorer"
+                                                                >
+                                                                    <span className="max-w-[120px] truncate sm:max-w-none">
+                                                                        {tx.paymentTxHash.slice(0, 6)}...
+                                                                        {tx.paymentTxHash.slice(-4)}
+                                                                    </span>
+                                                                    <ExternalLink className="h-3 w-3 shrink-0" />
+                                                                </a>
+                                                            </div>
                                                         )}
-                                                    </button>
-                                                </div>
-                                                {tx.paymentTxHash && isSupportedNetwork(tx.networkName) && getExplorerLink(tx.networkName, tx.paymentTxHash) && (
-                                                    <div className="flex items-center justify-between text-sm">
-                                                        <span className="text-gray-600">View in explorer:</span>
-                                                        <a
-                                                            href={getExplorerLink(tx.networkName, tx.paymentTxHash)!}
-                                                            target="_blank"
-                                                            rel="noopener noreferrer"
-                                                            className="flex items-center gap-1 text-blue-600 hover:text-blue-700 font-mono text-xs hover:underline"
-                                                            title="View on blockchain explorer"
-                                                        >
-                                                            <span className="truncate max-w-[120px] sm:max-w-none">
-                                                                {tx.paymentTxHash.slice(0, 6)}...{tx.paymentTxHash.slice(-4)}
-                                                            </span>
-                                                            <ExternalLink className="h-3 w-3 flex-shrink-0" />
-                                                        </a>
-                                                    </div>
-                                                )}
-                                                {tx.errorMessage && (
-                                                    <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-xs text-red-700">
-                                                        {tx.errorMessage}
-                                                    </div>
-                                                )}
-                                                {/* Sync button for electricity transactions without token/unit or processing status */}
-                                                {tx.category === "electricity" &&
-                                                    (tx.status === "processing" ||
-                                                        tx.status === "payment_received" ||
-                                                        (!tx.electricityToken && tx.status !== "failed")) && (
-                                                        <div className="mt-3 pt-3 border-t border-gray-100">
-                                                            <Button
-                                                                onClick={() => handleSyncTransaction(tx.id)}
-                                                                disabled={syncingTxId === tx.id}
-                                                                variant="outline"
-                                                                size="sm"
-                                                                className="w-full text-xs"
-                                                            >
-                                                                {syncingTxId === tx.id ? (
-                                                                    <>
-                                                                        <Loader2 className="h-3 w-3 mr-2 animate-spin" />
-                                                                        Syncing...
-                                                                    </>
-                                                                ) : (
-                                                                    <>
-                                                                        <RefreshCw className="h-3 w-3 mr-2" />
-                                                                        Sync Status
-                                                                    </>
-                                                                )}
-                                                            </Button>
+                                                    {tx.errorMessage && (
+                                                        <div className="mt-2 rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700">
+                                                            {tx.errorMessage}
                                                         </div>
                                                     )}
-                                            </div>
+                                                    {tx.category === "electricity" &&
+                                                        (tx.status === "processing" ||
+                                                            tx.status === "payment_received" ||
+                                                            (!tx.electricityToken && tx.status !== "failed")) && (
+                                                            <div className="mt-3 border-t border-gray-100 pt-3">
+                                                                <Button
+                                                                    type="button"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        void handleSyncTransaction(tx.id);
+                                                                    }}
+                                                                    disabled={syncingTxId === tx.id}
+                                                                    variant="outline"
+                                                                    size="sm"
+                                                                    className="w-full text-xs"
+                                                                >
+                                                                    {syncingTxId === tx.id ? (
+                                                                        <>
+                                                                            <Loader2 className="mr-2 h-3 w-3 animate-spin" />
+                                                                            Syncing...
+                                                                        </>
+                                                                    ) : (
+                                                                        <>
+                                                                            <RefreshCw className="mr-2 h-3 w-3" />
+                                                                            Sync Status
+                                                                        </>
+                                                                    )}
+                                                                </Button>
+                                                            </div>
+                                                        )}
+                                                </div>
+                                            )}
                                         </motion.div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                             )}
                         </div>
