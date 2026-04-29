@@ -122,6 +122,16 @@ export function LoadingSkeleton({
     );
 }
 
+/** Skeleton for the Pay Bills / Deposit tab switcher on the home page. */
+export function ViewToggleSkeleton() {
+    return (
+        <div className="grid grid-cols-2 gap-2 p-1 bg-gray-100 rounded-2xl">
+            <LoadingSkeleton className="h-10 w-full rounded-xl" />
+            <LoadingSkeleton className="h-10 w-full rounded-xl" />
+        </div>
+    );
+}
+
 // Skeleton loader for the title section
 export function TitleSkeleton() {
     return (
@@ -144,48 +154,64 @@ export function TitleSkeleton() {
     );
 }
 
-// Skeleton loader for the airtime swap form
+// Skeleton loader for the airtime swap form (aligns with AirtimeSwapCard: Service, Provider, Amount+token, Phone, CTA)
 export function AirtimeFormSkeleton() {
     return (
         <div className="bg-white rounded-2xl p-6 border border-gray-200 shadow-lg space-y-4">
-            {/* Service Type Skeleton */}
+            {/* Service Type */}
             <div className="space-y-2">
-                <LoadingSkeleton className="h-4 w-24" />
-                <LoadingSkeleton className="h-12 w-full rounded-xl" />
+                <LoadingSkeleton className="h-4 w-24 rounded" />
+                <LoadingSkeleton className="h-12 w-full rounded-2xl border border-gray-200 bg-gray-50" />
             </div>
 
-            {/* Network Skeleton */}
+            {/* Provider */}
             <div className="space-y-2">
-                <LoadingSkeleton className="h-4 w-20" />
-                <LoadingSkeleton className="h-14 w-full rounded-xl bg-purple-50" />
+                <LoadingSkeleton className="h-4 w-16 rounded" />
+                <LoadingSkeleton className="h-12 w-full rounded-2xl border border-gray-200 bg-gray-50" />
             </div>
 
-            {/* Send Section Skeleton */}
+            {/* Amount (NGN) + stablecoin selector */}
             <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                    <LoadingSkeleton className="h-4 w-16" />
-                    <LoadingSkeleton className="h-3 w-12" />
-                </div>
+                <LoadingSkeleton className="h-4 w-28 rounded" />
                 <div className="flex gap-2">
-                    <LoadingSkeleton className="h-16 flex-1 rounded-xl" />
-                    <LoadingSkeleton className="h-16 w-[180px] rounded-xl" />
+                    <LoadingSkeleton className="h-12 min-h-12 flex-1 rounded-2xl border border-gray-200 bg-gray-50" />
+                    <LoadingSkeleton className="h-12 w-[180px] shrink-0 rounded-2xl border border-gray-200 bg-gray-50" />
                 </div>
             </div>
 
-            {/* Phone Number Skeleton */}
+            {/* Phone Number (label uses text-xs in the real form) */}
             <div className="space-y-2">
-                <LoadingSkeleton className="h-3 w-28" />
-                <LoadingSkeleton className="h-14 w-full rounded-xl" />
+                <LoadingSkeleton className="h-3 w-28 rounded" />
+                <LoadingSkeleton className="h-12 w-full rounded-2xl border border-gray-200 bg-gray-50" />
             </div>
 
-            {/* Receive Amount Skeleton */}
-            <div className="py-3 bg-gray-50 rounded-xl border border-gray-200">
-                <LoadingSkeleton className="h-3 w-32 mx-auto mb-2" />
-                <LoadingSkeleton className="h-6 w-40 mx-auto" />
-            </div>
+            {/* Purchase / Sign in button */}
+            <LoadingSkeleton className="h-12 w-full rounded-xl" />
+        </div>
+    );
+}
 
-            {/* Purchase Button Skeleton */}
-            <LoadingSkeleton className="h-14 w-full rounded-xl" />
+/** Skeleton for the fiat deposit card (matches DepositFiatCard layout). */
+export function DepositFormSkeleton() {
+    return (
+        <div className="w-full rounded-3xl bg-white p-6 shadow-xl border border-gray-100 space-y-4">
+            <div className="space-y-2">
+                <LoadingSkeleton className="h-3 w-24" />
+                <LoadingSkeleton className="h-12 w-full rounded-2xl" />
+            </div>
+            <div className="space-y-2">
+                <LoadingSkeleton className="h-3 w-16" />
+                <div className="flex h-12 items-center gap-3 rounded-2xl border border-gray-200 bg-gray-50 px-3">
+                    <LoadingSkeleton className="h-6 flex-1 rounded-lg" />
+                    <LoadingSkeleton className="h-8 w-[150px] rounded-xl" />
+                </div>
+                <LoadingSkeleton className="h-3 w-48" />
+            </div>
+            <div className="space-y-2 rounded-2xl border border-gray-200 bg-gray-50 p-3">
+                <LoadingSkeleton className="h-4 w-full max-w-[280px]" />
+                <LoadingSkeleton className="h-4 w-32" />
+            </div>
+            <LoadingSkeleton className="h-12 w-full rounded-xl" />
         </div>
     );
 }
