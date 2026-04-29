@@ -298,20 +298,22 @@ export function TransactionHistoryDrawer({ isOpen, onClose }: TransactionHistory
                                                     <p className="text-xs text-gray-500">Amount Paid</p>
                                                     <p className="text-lg font-bold text-gray-900">₦{(tx.serviceAmount ?? tx.ngnAmount ?? 0).toLocaleString()}</p>
                                                 </div>
-                                                <div className="text-right flex-shrink-0">
-                                                    <p className="text-xs text-gray-500">Token</p>
-                                                    <p className="text-sm font-semibold text-gray-700 whitespace-nowrap">
-                                                        {(() => {
-                                                            const tokenAmount = parseFloat(tx.tokenAmount);
-                                                            return isFinite(tokenAmount) ? tokenAmount.toFixed(8) : "0.00000000";
-                                                        })()} {tx.token}
-                                                    </p>
-                                                </div>
+                                                {tx.category !== "gaming" && (
+                                                    <div className="text-right flex-shrink-0">
+                                                        <p className="text-xs text-gray-500">Token</p>
+                                                        <p className="text-sm font-semibold text-gray-700 whitespace-nowrap">
+                                                            {(() => {
+                                                                const tokenAmount = parseFloat(tx.tokenAmount);
+                                                                return isFinite(tokenAmount) ? tokenAmount.toFixed(8) : "0.00000000";
+                                                            })()} {tx.token}
+                                                        </p>
+                                                    </div>
+                                                )}
                                             </div>
 
                                             {/* Details */}
                                             <div className="space-y-2">
-                                                {tx.electricityToken && (
+                                                {tx.category !== "gaming" && tx.electricityToken && (
                                                     <div className="flex items-center justify-between text-sm gap-2">
                                                         <span className="text-gray-600">Token:</span>
                                                         <button
@@ -328,7 +330,7 @@ export function TransactionHistoryDrawer({ isOpen, onClose }: TransactionHistory
                                                         </button>
                                                     </div>
                                                 )}
-                                                {tx.electricityUnit && (
+                                                {tx.category !== "gaming" && tx.electricityUnit && (
                                                     <div className="flex items-center justify-between text-sm">
                                                         <span className="text-gray-600">Units:</span>
                                                         <span className="font-semibold text-gray-900">{tx.electricityUnit} kWh</span>
