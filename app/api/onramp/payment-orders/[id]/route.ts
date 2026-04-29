@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import config from "@/lib/config";
+import { parseOnrampOrderFromPayload } from "@/lib/onramp-order";
 
 function ensureOnrampConfig() {
   const missing = [
@@ -10,37 +11,6 @@ function ensureOnrampConfig() {
   if (missing.length > 0) {
     throw new Error(`Missing required onramp config: ${missing.map(([name]) => name).join(", ")}`);
   }
-}
-
-function parseOnrampResponse(payload: any) {
-  const data = payload?.data ?? payload;
-  const providerAccount = data?.providerAccount ?? data?.paymentAccount ?? null;
-
-  return {
-    id: String(data?.id ?? data?.orderId ?? ""),
-    status: String(data?.status ?? payload?.status ?? "pending"),
-    providerAccount: providerAccount
-      ? {
-          institution: String(
-            providerAccount?.institution ??
-              providerAccount?.bankName ??
-              providerAccount?.bank_name ??
-              ""
-          ),
-          accountName: String(
-            providerAccount?.accountName ??
-              providerAccount?.account_name ??
-              ""
-          ),
-          accountIdentifier: String(
-            providerAccount?.accountIdentifier ??
-              providerAccount?.accountNumber ??
-              providerAccount?.account_identifier ??
-              ""
-          ),
-        }
-      : null,
-  };
 }
 
 export async function GET(
@@ -78,7 +48,7 @@ export async function GET(
       );
     }
 
-    const order = parseOnrampResponse(payload);
+    const order = parseOnrampOrderFromPayload(payload);
     return NextResponse.json({
       success: true,
       order,

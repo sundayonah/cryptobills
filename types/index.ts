@@ -303,6 +303,61 @@ export interface PayCrestResponse {
     metadata: null;
 }
 
+export type PaycrestRateSide = 'buy' | 'sell';
+
+export interface PaycrestV2RateQuoteSide {
+    rate: string;
+    providerIds?: string[];
+    orderType?: string;
+    refundTimeoutMinutes?: number;
+}
+
+export interface PaycrestV2RateQuoteResponse {
+    buy?: PaycrestV2RateQuoteSide | null;
+    sell?: PaycrestV2RateQuoteSide | null;
+}
+
+export interface PaycrestAggregatorRateEnvelope {
+    status: string;
+    message?: string;
+    data?: PaycrestV2RateQuoteResponse;
+}
+
+export interface FetchPaycrestRateV2Params {
+    token: string;
+    amount: number;
+    currency: string;
+    network: string;
+    side: PaycrestRateSide;
+    providerId?: string;
+    signal?: AbortSignal;
+}
+
+// ============================================================================
+// Onramp / fiat deposit
+// ============================================================================
+
+export type OnrampOrder = {
+    id: string;
+    status: string;
+    /** ISO timestamp when the virtual-account funding window ends (v2 sender order). */
+    validUntil: string | null;
+    providerAccount: {
+        institution: string;
+        accountName: string;
+        accountIdentifier: string;
+    } | null;
+};
+
+export type DepositRateData = {
+    token: string;
+    network: string;
+    rate: number;
+};
+
+/** Minimum estimated stablecoin receive for fiat deposits (UI + API validation). */
+export const MIN_DEPOSIT_RECEIVE_STABLE = 0.5;
+
 export interface Config {
     paycrest_rate_api: string;
     paycrest_onramp_api_url: string;

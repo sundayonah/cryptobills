@@ -3,7 +3,7 @@
 import { Header } from "@/components/header";
 import { AirtimeSwapCard } from "@/components/airtime-swap-card";
 import { DepositFiatCard } from "@/components/deposit-fiat-card";
-import { TitleSkeleton } from "@/components/ui/loading";
+import { TitleSkeleton, ViewToggleSkeleton } from "@/components/ui/loading";
 import { motion } from "framer-motion";
 import { usePrivy } from "@privy-io/react-auth";
 import { useState } from "react";
@@ -39,28 +39,34 @@ export default function Home() {
         )}
 
         <div className="max-w-lg mx-auto space-y-4">
-          <div className="grid grid-cols-2 gap-2 p-1 bg-gray-100 rounded-2xl">
-            <button
-              onClick={() => setActiveView("bills")}
-              className={`h-10 rounded-xl text-sm font-medium transition-colors ${
-                activeView === "bills"
-                  ? "bg-white text-gray-900 shadow-sm"
-                  : "text-gray-600 hover:text-gray-800"
-              }`}
-            >
-              Pay Bills
-            </button>
-            <button
-              onClick={() => setActiveView("deposit")}
-              className={`h-10 rounded-xl text-sm font-medium transition-colors ${
-                activeView === "deposit"
-                  ? "bg-white text-gray-900 shadow-sm"
-                  : "text-gray-600 hover:text-gray-800"
-              }`}
-            >
-              Deposit
-            </button>
-          </div>
+          {!ready ? (
+            <ViewToggleSkeleton />
+          ) : (
+            <div className="grid grid-cols-2 gap-2 p-1 bg-gray-100 rounded-2xl">
+              <button
+                type="button"
+                onClick={() => setActiveView("bills")}
+                className={`h-10 rounded-xl text-sm font-medium transition-colors ${
+                  activeView === "bills"
+                    ? "bg-white text-gray-900 shadow-sm"
+                    : "text-gray-600 hover:text-gray-800"
+                }`}
+              >
+                Pay Bilz
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveView("deposit")}
+                className={`h-10 rounded-xl text-sm font-medium transition-colors ${
+                  activeView === "deposit"
+                    ? "bg-white text-gray-900 shadow-sm"
+                    : "text-gray-600 hover:text-gray-800"
+                }`}
+              >
+                Deposit
+              </button>
+            </div>
+          )}
 
           {activeView === "bills" ? <AirtimeSwapCard /> : <DepositFiatCard />}
         </div>

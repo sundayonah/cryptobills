@@ -1,5 +1,3 @@
-// fetch environment variables
-
 import type { Config } from '@/types';
 
 const config: Config = {

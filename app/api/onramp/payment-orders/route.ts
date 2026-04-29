@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import config from "@/lib/config";
+import { fetchPaycrestRateV2 } from "@/lib/utils";
+import { parseOnrampOrderFromPayload } from "@/lib/onramp-order";
+import { MIN_DEPOSIT_RECEIVE_STABLE } from "@/types";
 
 const createOnrampOrderSchema = z.object({
   amount: z.number().positive("Amount must be greater than zero"),
@@ -29,37 +32,6 @@ function ensureOnrampConfig() {
   }
 }
 
-function parseOnrampResponse(payload: any) {
-  const data = payload?.data ?? payload;
-  const providerAccount = data?.providerAccount ?? data?.paymentAccount ?? null;
-
-  return {
-    id: String(data?.id ?? data?.orderId ?? ""),
-    status: String(data?.status ?? payload?.status ?? "pending"),
-    providerAccount: providerAccount
-      ? {
-          institution: String(
-            providerAccount?.institution ??
-              providerAccount?.bankName ??
-              providerAccount?.bank_name ??
-              ""
-          ),
-          accountName: String(
-            providerAccount?.accountName ??
-              providerAccount?.account_name ??
-              ""
-          ),
-          accountIdentifier: String(
-            providerAccount?.accountIdentifier ??
-              providerAccount?.accountNumber ??
-              providerAccount?.account_identifier ??
-              ""
-          ),
-        }
-      : null,
-  };
-}
-
 export async function POST(request: NextRequest) {
   try {
     ensureOnrampConfig();
@@ -71,6 +43,34 @@ export async function POST(request: NextRequest) {
     if (!network) {
       return NextResponse.json(
         { success: false, error: "Unsupported network for onramp" },
+        { status: 400 }
+      );
+    }
+
+    let buyRate: number;
+    try {
+      buyRate = await fetchPaycrestRateV2({
+        token: validated.token,
+        amount: 1,
+        currency: "NGN",
+        network,
+        side: "buy",
+      });
+    } catch {
+      return NextResponse.json(
+        { success: false, error: "Unable to verify minimum deposit against current buy rate" },
+        { status: 503 }
+      );
+    }
+
+    const estimatedReceive = validated.amount / buyRate;
+    if (estimatedReceive + 1e-12 < MIN_DEPOSIT_RECEIVE_STABLE) {
+      const minNgn = MIN_DEPOSIT_RECEIVE_STABLE * buyRate;
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Minimum receive is ${MIN_DEPOSIT_RECEIVE_STABLE} ${validated.token}. Increase NGN amount (at least ₦${Math.ceil(minNgn).toLocaleString()} at current rate).`,
+        },
         { status: 400 }
       );
     }
@@ -121,7 +121,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const order = parseOnrampResponse(payload);
+    const order = parseOnrampOrderFromPayload(payload);
     return NextResponse.json({
       success: true,
       order,
