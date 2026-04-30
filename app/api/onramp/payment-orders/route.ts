@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import config from "@/lib/config";
-import { fetchPaycrestRateV2 } from "@/lib/utils";
-import { parseOnrampOrderFromPayload } from "@/lib/onramp-order";
+import { fetchPaycrestRateV2, normalizeWalletAddress } from "@/lib/utils";
+import { getNetworkById } from "@/lib/networks";
+import { prisma } from "@/lib/prisma";
+import { parseOnrampOrderFromPayload, paybetaReferenceForOnrampOrderId } from "@/lib/onramp-order";
 import { MIN_DEPOSIT_RECEIVE_STABLE } from "@/types";
 
 const createOnrampOrderSchema = z.object({
@@ -10,6 +12,7 @@ const createOnrampOrderSchema = z.object({
   token: z.enum(["USDC", "USDT"]),
   chainId: z.number(),
   walletAddress: z.string().regex(/^0x[a-fA-F0-9]{40}$/, "Invalid wallet address"),
+  privyUserId: z.string().optional(),
 });
 
 const AGGREGATOR_NETWORK_BY_CHAIN_ID: Record<number, string> = {
@@ -122,6 +125,88 @@ export async function POST(request: NextRequest) {
     }
 
     const order = parseOnrampOrderFromPayload(payload);
+    const networkMeta = getNetworkById(validated.chainId);
+
+    if (order.id) {
+      const normalizedWalletAddress = normalizeWalletAddress(validated.walletAddress);
+      if (normalizedWalletAddress) {
+        try {
+          let user = await prisma.user.findUnique({
+            where: { walletAddress: normalizedWalletAddress },
+          });
+
+          if (!user && validated.privyUserId) {
+            user = await prisma.user.findUnique({
+              where: { privyUserId: validated.privyUserId },
+            });
+            if (user && user.walletAddress !== normalizedWalletAddress) {
+              user = await prisma.user.update({
+                where: { id: user.id },
+                data: { walletAddress: normalizedWalletAddress },
+              });
+            }
+          }
+
+          if (!user) {
+            if (validated.privyUserId) {
+              const existingByPrivy = await prisma.user.findUnique({
+                where: { privyUserId: validated.privyUserId },
+              });
+              if (existingByPrivy) {
+                user = await prisma.user.update({
+                  where: { id: existingByPrivy.id },
+                  data: { walletAddress: normalizedWalletAddress },
+                });
+              } else {
+                user = await prisma.user.create({
+                  data: {
+                    walletAddress: normalizedWalletAddress,
+                    privyUserId: validated.privyUserId,
+                  },
+                });
+              }
+            } else {
+              user = await prisma.user.create({
+                data: { walletAddress: normalizedWalletAddress },
+              });
+            }
+          } else if (validated.privyUserId && !user.privyUserId) {
+            user = await prisma.user.update({
+              where: { id: user.id },
+              data: { privyUserId: validated.privyUserId },
+            });
+          }
+
+          const payRef = paybetaReferenceForOnrampOrderId(order.id);
+          const tokenAmountStr = estimatedReceive.toFixed(8);
+          const serviceAmountNgn = Math.round(validated.amount);
+
+          await prisma.transaction.create({
+            data: {
+              userId: user.id,
+              walletAddress: normalizedWalletAddress,
+              token: validated.token,
+              tokenAmount: tokenAmountStr,
+              ngnAmount: validated.amount,
+              exchangeRate: buyRate,
+              networkChainId: networkMeta?.id ?? validated.chainId,
+              networkName: networkMeta?.name ?? null,
+              category: "onramp",
+              service: "deposit",
+              serviceName: `Fiat deposit → ${validated.token}`,
+              accountNumber: normalizedWalletAddress,
+              serviceAmount: serviceAmountNgn,
+              paybetaReference: payRef,
+              status: "processing",
+              ...(order.paymentTxHash ? { paymentTxHash: order.paymentTxHash } : {}),
+            },
+          });
+        } catch (persistErr) {
+          console.error("Failed to persist onramp transaction for history:", persistErr);
+        }
+      }
+    }
+
     return NextResponse.json({
       success: true,
       order,

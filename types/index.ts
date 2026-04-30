@@ -278,6 +278,38 @@ export interface AirtimeTransaction {
     completedAt?: Date;
 }
 
+/**
+ * Serialized transaction from `GET /api/transactions` (fields used by the history drawer).
+ */
+export interface TransactionHistoryItem {
+    id: string;
+    category: string;
+    serviceName?: string;
+    status: string;
+    token: string;
+    tokenAmount: string;
+    ngnAmount: number;
+    serviceAmount: number;
+    phoneNumber?: string;
+    meterNumber?: string;
+    accountNumber?: string;
+    electricityToken?: string;
+    electricityUnit?: string;
+    paybetaReference: string;
+    paybetaTransactionId?: string;
+    createdAt: string;
+    completedAt?: string;
+    errorMessage?: string;
+    paymentTxHash?: string;
+    networkName?: string;
+    networkChainId?: number | null;
+}
+
+export interface TransactionHistoryDrawerProps {
+    isOpen: boolean;
+    onClose: () => void;
+}
+
 export interface TransactionCreateInput {
     userId: string;
     walletAddress: string;
@@ -347,6 +379,8 @@ export type OnrampOrder = {
         accountName: string;
         accountIdentifier: string;
     } | null;
+    /** On-chain settlement / payout tx when PayCrest exposes it (e.g. after `settled`). */
+    paymentTxHash: string | null;
 };
 
 export type DepositRateData = {

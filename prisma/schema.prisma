@@ -6,8 +6,8 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
 }
 
@@ -49,7 +49,7 @@ model Transaction {
   networkName    String? // 'Ethereum', 'Polygon', 'Arbitrum', 'Base', etc.
 
   // Service/Category details
-  category    String // 'airtime', 'data_bundle', 'cable_tv', 'electricity', 'showmax', 'gaming'
+  category    String // 'airtime', 'data_bundle', 'cable_tv', 'electricity', 'showmax', 'gaming', 'onramp'
   service     String // Provider/service code (e.g., 'mtn_vtu', 'glo_vtu', etc.)
   serviceName String? // Human-readable service name (e.g., 'MTN VTU', 'GLO VTU')
   bundleCode  String? // Bundle code for data bundle (e.g., 'MTN_100_MB_DAILY_DATA_BUNDLE')
@@ -78,7 +78,7 @@ model Transaction {
   customerId       String? // Customer ID from PayBeta
 
   // PayBeta integration
-  paybetaReference     String @unique
+  paybetaReference     String  @unique
   paybetaTransactionId String?
 
   // Status tracking
@@ -86,7 +86,7 @@ model Transaction {
   errorMessage String?
 
   // Refund tracking
-  refundStatus      String?  // 'pending' | 'initiated' | 'confirmed' | 'failed'
+  refundStatus      String? // 'pending' | 'initiated' | 'confirmed' | 'failed'
   refundTxHash      String?
   refundReason      String?
   refundRequestedAt DateTime?
