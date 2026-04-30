@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import config from "@/lib/config";
-import { parseOnrampOrderFromPayload } from "@/lib/onramp-order";
+import { prisma } from "@/lib/prisma";
+import {
+  parseOnrampOrderFromPayload,
+  paybetaReferenceForOnrampOrderId,
+  paycrestOrderStatusToTransactionUpdate,
+} from "@/lib/onramp-order";
 
 function ensureOnrampConfig() {
   const missing = [
@@ -49,6 +54,28 @@ export async function GET(
     }
 
     const order = parseOnrampOrderFromPayload(payload);
+
+    if (order.id) {
+      try {
+        const payRef = paybetaReferenceForOnrampOrderId(order.id);
+        const row = await prisma.transaction.findFirst({
+          where: { paybetaReference: payRef, category: "onramp" },
+        });
+        if (row) {
+          const statusData = paycrestOrderStatusToTransactionUpdate(order.status);
+          await prisma.transaction.update({
+            where: { id: row.id },
+            data: {
+              ...statusData,
+              ...(order.paymentTxHash ? { paymentTxHash: order.paymentTxHash } : {}),
+            },
+          });
+        }
+      } catch (syncErr) {
+        console.error("Onramp transaction history sync failed:", syncErr);
+      }
+    }
+
     return NextResponse.json({
       success: true,
       order,

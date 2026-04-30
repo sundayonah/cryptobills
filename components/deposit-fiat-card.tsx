@@ -325,6 +325,7 @@ export function DepositFiatCard() {
           token: token as SupportedToken,
           chainId: selectedNetwork.id,
           walletAddress,
+          ...(user?.id ? { privyUserId: user.id } : {}),
         }),
       });
 

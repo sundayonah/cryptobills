@@ -18,55 +18,23 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import { copyToClipboard, getExplorerLink, isSupportedNetwork } from "@/lib/utils";
+import { copyToClipboard, resolveTxExplorerUrl } from "@/lib/utils";
 import { getWalletAddressFromPrivyUser } from "@/lib/privy-utils";
-
-interface Transaction {
-    id: string;
-    category: string;
-    serviceName?: string;
-    status: string;
-    token: string;
-    tokenAmount: string;
-    ngnAmount: number;
-    serviceAmount: number;
-    phoneNumber?: string;
-    meterNumber?: string;
-    accountNumber?: string;
-    electricityToken?: string;
-    electricityUnit?: string;
-    paybetaReference: string;
-    paybetaTransactionId?: string;
-    createdAt: string;
-    completedAt?: string;
-    errorMessage?: string;
-    paymentTxHash?: string;
-    networkName?: string;
-}
-
-interface TransactionHistoryDrawerProps {
-    isOpen: boolean;
-    onClose: () => void;
-}
+import type { TransactionHistoryDrawerProps, TransactionHistoryItem } from "@/types";
 
 export function TransactionHistoryDrawer({ isOpen, onClose }: TransactionHistoryDrawerProps) {
     const { authenticated, user, logout } = usePrivy();
     const { toast } = useToast();
-    const [transactions, setTransactions] = useState<Transaction[]>([]);
+    const [transactions, setTransactions] = useState<TransactionHistoryItem[]>([]);
     const [loading, setLoading] = useState(false);
     const [copied, setCopied] = useState<string | null>(null);
     const [syncingTxId, setSyncingTxId] = useState<string | null>(null);
-    const [expandedTxIds, setExpandedTxIds] = useState<Set<string>>(() => new Set());
+    const [expandedTxId, setExpandedTxId] = useState<string | null>(null);
 
-    const isTxExpanded = (id: string) => expandedTxIds.has(id);
+    const isTxExpanded = (id: string) => expandedTxId === id;
 
     const toggleTxExpanded = (id: string) => {
-        setExpandedTxIds((prev) => {
-            const next = new Set(prev);
-            if (next.has(id)) next.delete(id);
-            else next.add(id);
-            return next;
-        });
+        setExpandedTxId((prev) => (prev === id ? null : id));
     };
 
     const fetchTransactions = useCallback(async () => {
@@ -97,7 +65,7 @@ export function TransactionHistoryDrawer({ isOpen, onClose }: TransactionHistory
         setLoading(true);
         try {
             // Fetch transactions for all wallet addresses
-            const allTransactions: Transaction[] = [];
+            const allTransactions: TransactionHistoryItem[] = [];
             
             for (const walletAddress of walletAddresses) {
                 const response = await fetch(`/api/transactions?walletAddress=${walletAddress}&limit=50`);
@@ -128,7 +96,7 @@ export function TransactionHistoryDrawer({ isOpen, onClose }: TransactionHistory
 
     useEffect(() => {
         if (!isOpen) {
-            setExpandedTxIds(new Set());
+            setExpandedTxId(null);
         }
     }, [isOpen]);
 
@@ -203,6 +171,8 @@ export function TransactionHistoryDrawer({ isOpen, onClose }: TransactionHistory
                 return <XCircle className="h-4 w-4 text-red-600" />;
             case "processing":
                 return <Loader2 className="h-4 w-4 text-yellow-600 animate-spin" />;
+            case "refunded":
+                return <RefreshCw className="h-4 w-4 text-blue-600" />;
             default:
                 return <Clock className="h-4 w-4 text-gray-400" />;
         }
@@ -216,6 +186,8 @@ export function TransactionHistoryDrawer({ isOpen, onClose }: TransactionHistory
                 return "text-red-600 bg-red-50 border-red-200";
             case "processing":
                 return "text-yellow-600 bg-yellow-50 border-yellow-200";
+            case "refunded":
+                return "text-blue-700 bg-blue-50 border-blue-200";
             default:
                 return "text-gray-600 bg-gray-50 border-gray-200";
         }
@@ -240,14 +212,21 @@ export function TransactionHistoryDrawer({ isOpen, onClose }: TransactionHistory
             electricity: "Electricity",
             showmax: "Showmax",
             gaming: "Gaming",
+            onramp: "Deposit",
         };
         return labels[category] || category;
     };
 
-    const getRecipientDisplay = (tx: Transaction) => {
+    const getRecipientDisplay = (tx: TransactionHistoryItem) => {
         if (tx.phoneNumber) return tx.phoneNumber;
         if (tx.meterNumber) return `Meter: ${tx.meterNumber}`;
-        if (tx.accountNumber) return `Account: ${tx.accountNumber}`;
+        if (tx.accountNumber) {
+            if (tx.category === "onramp") {
+                const a = tx.accountNumber;
+                return a.length > 12 ? `${a.slice(0, 6)}…${a.slice(-4)}` : a;
+            }
+            return `Account: ${tx.accountNumber}`;
+        }
         return "N/A";
     };
 
@@ -300,6 +279,11 @@ export function TransactionHistoryDrawer({ isOpen, onClose }: TransactionHistory
                                 <div className="space-y-3">
                                     {transactions.map((tx) => {
                                         const expanded = isTxExpanded(tx.id);
+                                        const explorerUrl = resolveTxExplorerUrl({
+                                            txHash: tx.paymentTxHash,
+                                            networkName: tx.networkName,
+                                            networkChainId: tx.networkChainId,
+                                        });
                                         return (
                                         <motion.div
                                             key={tx.id}
@@ -356,7 +340,11 @@ export function TransactionHistoryDrawer({ isOpen, onClose }: TransactionHistory
                                                     {tx.category !== "gaming" && (
                                                         <div className="flex items-center justify-between gap-4">
                                                             <div className="min-w-0 flex-1">
-                                                                <p className="text-xs text-gray-500">Token paid</p>
+                                                                <p className="text-xs text-gray-500">
+                                                                    {tx.category === "onramp"
+                                                                        ? "Est. receive (stablecoin)"
+                                                                        : "Token paid"}
+                                                                </p>
                                                                 <p className="text-sm font-semibold whitespace-nowrap text-gray-700">
                                                                     {(() => {
                                                                         const tokenAmount = parseFloat(tx.tokenAmount);
@@ -429,13 +417,11 @@ export function TransactionHistoryDrawer({ isOpen, onClose }: TransactionHistory
                                                             )}
                                                         </button>
                                                     </div>
-                                                    {tx.paymentTxHash &&
-                                                        isSupportedNetwork(tx.networkName) &&
-                                                        getExplorerLink(tx.networkName, tx.paymentTxHash) && (
+                                                    {explorerUrl && tx.paymentTxHash && (
                                                             <div className="flex items-center justify-between text-sm">
                                                                 <span className="text-gray-600">View in explorer:</span>
                                                                 <a
-                                                                    href={getExplorerLink(tx.networkName, tx.paymentTxHash)!}
+                                                                    href={explorerUrl}
                                                                     target="_blank"
                                                                     rel="noopener noreferrer"
                                                                     onClick={(e) => e.stopPropagation()}

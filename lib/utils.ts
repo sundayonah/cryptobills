@@ -91,19 +91,64 @@ export async function copyToClipboard(text: string): Promise<boolean> {
 export function getExplorerLink(network: string | null | undefined, txHash: string | null | undefined): string | null {
   if (!network || !txHash) return null;
 
-  const normalizedNetwork = network.trim();
-  
-  switch (normalizedNetwork) {
-    case "Polygon":
-      return `https://polygonscan.com/tx/${txHash}`;
-    case "Base":
-      return `https://basescan.org/tx/${txHash}`;
-    case "Arbitrum":
-    case "Arbitrum One":
-      return `https://arbiscan.io/tx/${txHash}`;
+  const h = txHash.trim();
+  if (!h) return null;
+
+  const key = network.trim().toLowerCase();
+
+  switch (key) {
+    case "polygon":
+      return `https://polygonscan.com/tx/${h}`;
+    case "base":
+      return `https://basescan.org/tx/${h}`;
+    case "arbitrum":
+    case "arbitrum one":
+    case "arbitrum-one":
+      return `https://arbiscan.io/tx/${h}`;
     default:
       return null;
   }
+}
+
+/**
+ * Explorer URL from EIP chain id when `networkName` is missing or unrecognized.
+ */
+export function getExplorerLinkByChainId(
+  chainId: number,
+  txHash: string | null | undefined
+): string | null {
+  if (txHash == null) return null;
+  const h = String(txHash).trim();
+  if (!h) return null;
+  switch (chainId) {
+    case polygon.id:
+      return `https://polygonscan.com/tx/${h}`;
+    case base.id:
+      return `https://basescan.org/tx/${h}`;
+    case arbitrum.id:
+      return `https://arbiscan.io/tx/${h}`;
+    default:
+      return null;
+  }
+}
+
+/**
+ * Resolve a block explorer URL for a stored transaction (name and/or chain id).
+ */
+export function resolveTxExplorerUrl(params: {
+  txHash: string | null | undefined;
+  networkName?: string | null;
+  networkChainId?: number | null;
+}): string | null {
+  const { txHash, networkName, networkChainId } = params;
+  if (txHash == null || String(txHash).trim() === "") return null;
+  const h = String(txHash).trim();
+  const byName = getExplorerLink(networkName, h);
+  if (byName) return byName;
+  if (networkChainId != null) {
+    return getExplorerLinkByChainId(networkChainId, h);
+  }
+  return null;
 }
 
 /**
@@ -113,8 +158,8 @@ export function getExplorerLink(network: string | null | undefined, txHash: stri
  */
 export function isSupportedNetwork(network: string | null | undefined): boolean {
   if (!network) return false;
-  const normalizedNetwork = network.trim();
-  return ["Polygon", "Base", "Arbitrum", "Arbitrum One"].includes(normalizedNetwork);
+  const key = network.trim().toLowerCase();
+  return ["polygon", "base", "arbitrum", "arbitrum one", "arbitrum-one"].includes(key);
 }
 
 /**
