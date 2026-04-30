@@ -247,3 +247,89 @@ export async function fetchPaycrestRateV2(params: FetchPaycrestRateV2Params): Pr
 
   return rate;
 }
+
+/**
+ * Map UI chain id to PayCrest aggregator v2 network slug.
+ */
+export function chainIdToPaycrestNetwork(chainId: number): string {
+  switch (chainId) {
+    case base.id:
+      return "base";
+    case polygon.id:
+      return "polygon";
+    case arbitrum.id:
+      return "arbitrum";
+    default:
+      return "base";
+  }
+}
+
+function aggregatorOriginForV2(): string {
+  const raw = (config.paycrest_rate_api || "").trim();
+  if (!raw) {
+    throw new Error("NEXT_PUBLIC_PAYCREST_RATE_API is not configured");
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error("NEXT_PUBLIC_PAYCREST_RATE_API must be a valid absolute URL");
+  }
+
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("NEXT_PUBLIC_PAYCREST_RATE_API must use http: or https:");
+  }
+
+  const basePath = parsed.pathname.replace(/\/v1\/rates\/?$/i, "").replace(/\/$/, "");
+  return `${parsed.origin}${basePath}`;
+}
+
+function pickV2SideQuote(
+  data: PaycrestV2RateQuoteResponse | undefined,
+  side: PaycrestRateSide,
+): PaycrestV2RateQuoteSide | undefined {
+  if (!data) return undefined;
+  return side === "buy" ? data.buy ?? undefined : data.sell ?? undefined;
+}
+
+export async function fetchPaycrestRateV2(params: FetchPaycrestRateV2Params): Promise<number> {
+  const net = params.network.trim().toLowerCase();
+  if (!net) {
+    throw new Error("network is required for rate quotes");
+  }
+
+  const origin = aggregatorOriginForV2();
+  const token = encodeURIComponent(params.token.toUpperCase());
+  const amount = encodeURIComponent(String(params.amount));
+  const currency = encodeURIComponent(params.currency.toUpperCase());
+  const pathNet = encodeURIComponent(net);
+
+  const url = new URL(`${origin}/v2/rates/${pathNet}/${token}/${amount}/${currency}`);
+  url.searchParams.set("side", params.side);
+  if (params.providerId) {
+    url.searchParams.set("provider_id", params.providerId);
+  }
+
+  const response = await fetch(url.toString(), {
+    method: "GET",
+    headers: { Accept: "application/json" },
+    signal: params.signal,
+    cache: "no-store",
+  });
+
+  const payload = (await response.json()) as PaycrestAggregatorRateEnvelope;
+
+  if (!response.ok || payload.status === "error") {
+    throw new Error(payload.message || `Aggregator rate error (${response.status})`);
+  }
+
+  const quote = pickV2SideQuote(payload.data, params.side);
+  const rawRate = quote?.rate;
+  const rate = Number(rawRate);
+  if (!rawRate || !Number.isFinite(rate) || rate <= 0) {
+    throw new Error(`No ${params.side} rate returned for this pair`);
+  }
+
+  return rate;
+}
