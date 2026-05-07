@@ -1138,10 +1138,13 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
       return;
     }
 
-    if (!config.payment_recipient_address) {
+    const utilityInboundAddress =
+      config.payment_escrow_address || config.payment_recipient_address;
+    if (!utilityInboundAddress) {
       toast({
         title: "Configuration Error",
-        description: "Payment recipient address is not configured",
+        description:
+          "Payment escrow or treasury address is not configured (NEXT_PUBLIC_PAYMENT_ESCROW_ADDRESS or NEXT_PUBLIC_PAYMENT_RECIPIENT_ADDRESS)",
         variant: "destructive",
       });
       return;
@@ -1160,9 +1163,10 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
         throw new Error('Exchange rate API is not configured. Please check PAYCREST_RATE_API environment variable.');
       }
 
-      // Validate payment recipient address
-      if (!config.payment_recipient_address) {
-        throw new Error('Payment recipient address is not configured. Please check NEXT_PUBLIC_PAYMENT_RECIPIENT_ADDRESS environment variable.');
+      if (!utilityInboundAddress) {
+        throw new Error(
+          'Payment escrow or treasury address is not configured. Set NEXT_PUBLIC_PAYMENT_ESCROW_ADDRESS (funds held until bill settles) and NEXT_PUBLIC_PAYMENT_RECIPIENT_ADDRESS (treasury).',
+        );
       }
 
       // ============================================
@@ -1487,7 +1491,7 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
 
       const tokenAddress = tokenConfig.address as Address;
       const decimals = tokenConfig.decimals;
-      const recipientAddress = (config.payment_recipient_address || '') as Address;
+      const recipientAddress = (utilityInboundAddress || '') as Address;
       const walletAddress = selectedWalletAddress as Address;
 
       let txHash: string;

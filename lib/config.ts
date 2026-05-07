@@ -17,6 +17,9 @@ const config: Config = {
     fallback_rate: parseFloat(process.env.NEXT_PUBLIC_FALLBACK_RATE || '0'),
     transaction_rate_adjustment: parseFloat(process.env.NEXT_PUBLIC_TRANSACTION_RATE_ADJUSTMENT || '0.03'),
     paycrest_rate_api: process.env.NEXT_PUBLIC_PAYCREST_RATE_API || '',
+    /** Utility bills: stablecoins land here first; forwarded to treasury on success or refunded on failure. */
+    payment_escrow_address:
+        process.env.NEXT_PUBLIC_PAYMENT_ESCROW_ADDRESS || '',
     payment_recipient_address: process.env.NEXT_PUBLIC_PAYMENT_RECIPIENT_ADDRESS || '',
     alchemy_api_key: process.env.ALCHEMY_API_KEY || '',
 }

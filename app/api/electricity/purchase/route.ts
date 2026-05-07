@@ -7,6 +7,11 @@ import { getNetworkById } from '@/lib/networks';
 import { processPayment } from '@/lib/payment-processors';
 import { getCryptobilzClient } from '@/lib/paybeta';
 import { normalizeWalletAddress } from '@/lib/utils';
+import {
+    settleUtilityEscrowOnBillFailure,
+    settleUtilityEscrowOnBillSuccess,
+    verifyUtilityInboundPayment,
+} from '@/lib/utility-escrow';
 import type { SupportedToken, UtilityBillCategory } from '@/types';
 
 const purchaseSchema = z.object({
@@ -30,6 +35,7 @@ const purchaseSchema = z.object({
 });
 
 export async function POST(request: NextRequest) {
+    let transaction: { id: string } | null = null;
     try {
         const body = await request.json();
         const validated = purchaseSchema.parse(body);
@@ -47,6 +53,21 @@ export async function POST(request: NextRequest) {
         if (!validated.paymentTxHash) {
             return NextResponse.json(
                 { error: 'Payment transaction hash is required' },
+                { status: 400 }
+            );
+        }
+
+        try {
+            await verifyUtilityInboundPayment({
+                paymentTxHash: validated.paymentTxHash,
+                networkChainId: validated.networkChainId,
+                token: validated.token as SupportedToken,
+                tokenAmount: validated.tokenAmount,
+                payerWalletAddress: normalizedWalletAddress,
+            });
+        } catch (verifyErr: any) {
+            return NextResponse.json(
+                { error: verifyErr?.message || 'Payment verification failed' },
                 { status: 400 }
             );
         }
@@ -203,7 +224,7 @@ export async function POST(request: NextRequest) {
         const serviceName = validated.serviceName || validated.service.replace(/-electric$/i, '').replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
 
         // Create transaction record
-        const transaction = await prisma.transaction.create({
+        transaction = await prisma.transaction.create({
             data: {
                 userId: user.id,
                 walletAddress: normalizedWalletAddress,
@@ -243,15 +264,11 @@ export async function POST(request: NextRequest) {
                 reference,
             });
         } catch (processError: any) {
-            // If processPayment throws, mark transaction as failed
             console.error('Error processing payment:', processError);
-            await prisma.transaction.update({
-                where: { id: transaction.id },
-                data: {
-                    status: 'failed',
-                    errorMessage: processError.message || 'Payment processing failed',
-                },
-            });
+            await settleUtilityEscrowOnBillFailure(
+                transaction.id,
+                processError.message || 'Payment processing failed',
+            );
             return NextResponse.json(
                 { error: processError.message || 'Failed to process payment' },
                 { status: 500 }
@@ -276,6 +293,8 @@ export async function POST(request: NextRequest) {
                     completedAt: new Date(),
                 },
             });
+
+            await settleUtilityEscrowOnBillSuccess(transaction.id);
 
             return NextResponse.json({
                 success: true,
@@ -318,14 +337,10 @@ export async function POST(request: NextRequest) {
                 },
             });
         } else {
-            // Transaction failed
-            await prisma.transaction.update({
-                where: { id: transaction.id },
-                data: {
-                    status: 'failed',
-                    errorMessage: paymentResponse.message || 'PayBeta purchase failed',
-                },
-            });
+            await settleUtilityEscrowOnBillFailure(
+                transaction.id,
+                paymentResponse.message || 'PayBeta purchase failed',
+            );
 
             return NextResponse.json(
                 { error: paymentResponse.message || 'Failed to purchase electricity' },
@@ -334,6 +349,17 @@ export async function POST(request: NextRequest) {
         }
     } catch (error: any) {
         console.error('Electricity purchase error:', error);
+
+        if (transaction) {
+            try {
+                await settleUtilityEscrowOnBillFailure(
+                    transaction.id,
+                    error.message || 'Internal server error during payment processing',
+                );
+            } catch (e) {
+                console.error('Escrow settlement after electricity purchase error failed:', e);
+            }
+        }
 
         if (error instanceof z.ZodError) {
             return NextResponse.json(

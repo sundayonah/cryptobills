@@ -44,6 +44,9 @@ model Transaction {
   exchangeRate  Float
   paymentTxHash String?
 
+  /// On-chain tx when escrow receives funds are forwarded to treasury (`NEXT_PUBLIC_PAYMENT_RECIPIENT_ADDRESS`)
+  treasuryForwardTxHash String?
+
   // Network/Blockchain details
   networkChainId Int? // Chain ID (1, 137, 42161, 8453, etc.)
   networkName    String? // 'Ethereum', 'Polygon', 'Arbitrum', 'Base', etc.

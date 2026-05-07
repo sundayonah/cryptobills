@@ -7,6 +7,11 @@ import { getNetworkById } from '@/lib/networks';
 import { processPayment } from '@/lib/payment-processors';
 import { getCryptobilzClient } from '@/lib/paybeta';
 import { normalizeWalletAddress } from '@/lib/utils';
+import {
+    settleUtilityEscrowOnBillFailure,
+    settleUtilityEscrowOnBillSuccess,
+    verifyUtilityInboundPayment,
+} from '@/lib/utility-escrow';
 import type { SupportedToken, UtilityBillCategory } from '@/types';
 
 const purchaseSchema = z.object({
@@ -45,6 +50,21 @@ export async function POST(request: NextRequest) {
         if (!validated.paymentTxHash) {
             return NextResponse.json(
                 { error: 'Payment transaction hash is required' },
+                { status: 400 }
+            );
+        }
+
+        try {
+            await verifyUtilityInboundPayment({
+                paymentTxHash: validated.paymentTxHash,
+                networkChainId: validated.networkChainId,
+                token: validated.token as SupportedToken,
+                tokenAmount: validated.tokenAmount,
+                payerWalletAddress: normalizedWalletAddress,
+            });
+        } catch (verifyErr: any) {
+            return NextResponse.json(
+                { error: verifyErr?.message || 'Payment verification failed' },
                 { status: 400 }
             );
         }
@@ -229,15 +249,11 @@ export async function POST(request: NextRequest) {
                 reference,
             });
         } catch (processError: any) {
-            // If processPayment throws, mark transaction as failed
             console.error('Error processing payment:', processError);
-            await prisma.transaction.update({
-                where: { id: transaction.id },
-                data: {
-                    status: 'failed',
-                    errorMessage: processError.message || 'Payment processing failed',
-                },
-            });
+            await settleUtilityEscrowOnBillFailure(
+                transaction.id,
+                processError.message || 'Payment processing failed',
+            );
             return NextResponse.json(
                 { error: processError.message || 'Failed to process payment' },
                 { status: 500 }
@@ -258,6 +274,8 @@ export async function POST(request: NextRequest) {
                     completedAt: new Date(),
                 },
             });
+
+            await settleUtilityEscrowOnBillSuccess(transaction.id);
 
             return NextResponse.json({
                 success: true,
@@ -297,14 +315,10 @@ export async function POST(request: NextRequest) {
                 },
             });
         } else {
-            // Transaction failed
-            await prisma.transaction.update({
-                where: { id: transaction.id },
-                data: {
-                    status: 'failed',
-                    errorMessage: paymentResponse.message || 'PayBeta purchase failed',
-                },
-            });
+            await settleUtilityEscrowOnBillFailure(
+                transaction.id,
+                paymentResponse.message || 'PayBeta purchase failed',
+            );
 
             return NextResponse.json(
                 { error: paymentResponse.message || 'Failed to purchase cable TV' },
@@ -317,15 +331,12 @@ export async function POST(request: NextRequest) {
         // Update transaction status to failed if it was created
         if (transaction) {
             try {
-                await prisma.transaction.update({
-                    where: { id: transaction.id },
-                    data: {
-                        status: 'failed',
-                        errorMessage: error.message || 'Internal server error during payment processing',
-                    },
-                });
+                await settleUtilityEscrowOnBillFailure(
+                    transaction.id,
+                    error.message || 'Internal server error during payment processing',
+                );
             } catch (updateError) {
-                console.error('Failed to update transaction status:', updateError);
+                console.error('Failed to settle escrow after cable purchase error:', updateError);
             }
         }
 

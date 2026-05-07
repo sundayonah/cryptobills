@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import {
+    isEscrowSettlementCategory,
+    settleUtilityEscrowOnBillFailure,
+    settleUtilityEscrowOnBillSuccess,
+} from '@/lib/utility-escrow';
 
 /**
  * PayBeta Webhook Endpoint
@@ -116,6 +121,18 @@ export async function POST(request: NextRequest) {
             where: { id: transaction.id },
             data: updateData,
         });
+
+        if (isEscrowSettlementCategory(transaction.category)) {
+            if (dbStatus === 'completed') {
+                await settleUtilityEscrowOnBillSuccess(updatedTransaction.id);
+            }
+            if (dbStatus === 'failed') {
+                await settleUtilityEscrowOnBillFailure(
+                    updatedTransaction.id,
+                    errorMessage || 'PayBeta reported failure',
+                );
+            }
+        }
 
         // Return 200 to acknowledge receipt (PayBeta expects 200 for successful webhook processing)
         return NextResponse.json({

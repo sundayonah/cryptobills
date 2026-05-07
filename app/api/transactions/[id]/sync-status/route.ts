@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getCryptobilzClient } from '@/lib/paybeta';
+import {
+    isEscrowSettlementCategory,
+    settleUtilityEscrowOnBillFailure,
+    settleUtilityEscrowOnBillSuccess,
+} from '@/lib/utility-escrow';
 import type { TransactionQueryResponse } from '@/types';
 
 /**
@@ -124,6 +129,18 @@ export async function POST(
             where: { id: transactionId },
             data: updateData,
         });
+
+        if (isEscrowSettlementCategory(transaction.category)) {
+            if (status === 'completed') {
+                await settleUtilityEscrowOnBillSuccess(updatedTransaction.id);
+            }
+            if (status === 'failed') {
+                await settleUtilityEscrowOnBillFailure(
+                    updatedTransaction.id,
+                    errorMessage || 'PayBeta reported failure',
+                );
+            }
+        }
 
         return NextResponse.json({
             success: true,
