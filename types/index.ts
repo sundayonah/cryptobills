@@ -301,6 +301,9 @@ export interface TransactionHistoryItem {
     completedAt?: string;
     errorMessage?: string;
     paymentTxHash?: string;
+    /** Escrow → treasury forward after successful utility bill */
+    treasuryForwardTxHash?: string | null;
+    refundTxHash?: string | null;
     networkName?: string;
     networkChainId?: number | null;
 }
@@ -403,6 +406,7 @@ export interface Config {
     transaction_rate_adjustment: number;
     paybeta_api_key: string;
     paybeta_base_url: string;
+    payment_escrow_address: string;
     payment_recipient_address: string;
     min_amount: number;
     max_amount: number;

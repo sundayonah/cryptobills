@@ -6,6 +6,11 @@ import config from '@/lib/config';
 import { getNetworkById } from '@/lib/networks';
 import { processPayment } from '@/lib/payment-processors';
 import { normalizeWalletAddress } from '@/lib/utils';
+import {
+    settleUtilityEscrowOnBillFailure,
+    settleUtilityEscrowOnBillSuccess,
+    verifyUtilityInboundPayment,
+} from '@/lib/utility-escrow';
 import type { SupportedToken, UtilityBillCategory, DataBundleService } from '@/types';
 
 const purchaseSchema = z.object({
@@ -25,6 +30,7 @@ const purchaseSchema = z.object({
 });
 
 export async function POST(request: NextRequest) {
+    let transaction: { id: string } | null = null;
     try {
         const body = await request.json();
         const validated = purchaseSchema.parse(body);
@@ -42,6 +48,21 @@ export async function POST(request: NextRequest) {
         if (!validated.paymentTxHash) {
             return NextResponse.json(
                 { error: 'Payment transaction hash is required' },
+                { status: 400 }
+            );
+        }
+
+        try {
+            await verifyUtilityInboundPayment({
+                paymentTxHash: validated.paymentTxHash,
+                networkChainId: validated.networkChainId,
+                token: validated.token as SupportedToken,
+                tokenAmount: validated.tokenAmount,
+                payerWalletAddress: normalizedWalletAddress,
+            });
+        } catch (verifyErr: any) {
+            return NextResponse.json(
+                { error: verifyErr?.message || 'Payment verification failed' },
                 { status: 400 }
             );
         }
@@ -152,7 +173,7 @@ export async function POST(request: NextRequest) {
         const serviceName = validated.serviceName || serviceNameMap[validated.service] || validated.service;
 
         // Create transaction record with all details
-        const transaction = await prisma.transaction.create({
+        transaction = await prisma.transaction.create({
             data: {
                 userId: user.id,
                 walletAddress: normalizedWalletAddress,
@@ -176,15 +197,27 @@ export async function POST(request: NextRequest) {
         });
 
         // Process payment via dynamic payment processor
-        // This routes to the appropriate PayBeta API endpoint based on category
-        const paymentResponse = await processPayment({
-            category: 'data_bundle',
-            service: validated.service,
-            phoneNumber: validated.phoneNumber,
-            code: validated.code, // Bundle code is required for data bundle
-            amount: Math.round(ngnAmount), // Ensure integer
-            reference,
-        });
+        let paymentResponse;
+        try {
+            paymentResponse = await processPayment({
+                category: 'data_bundle',
+                service: validated.service,
+                phoneNumber: validated.phoneNumber,
+                code: validated.code, // Bundle code is required for data bundle
+                amount: Math.round(ngnAmount), // Ensure integer
+                reference,
+            });
+        } catch (processError: any) {
+            console.error('Error processing data bundle payment:', processError);
+            await settleUtilityEscrowOnBillFailure(
+                transaction.id,
+                processError.message || 'Payment processing failed',
+            );
+            return NextResponse.json(
+                { error: processError.message || 'Failed to process payment' },
+                { status: 500 }
+            );
+        }
 
         // Update transaction with PayBeta response
         if (paymentResponse.status === 'successful' && paymentResponse.data) {
@@ -198,6 +231,8 @@ export async function POST(request: NextRequest) {
                     completedAt: new Date(),
                 },
             });
+
+            await settleUtilityEscrowOnBillSuccess(transaction.id);
 
             return NextResponse.json({
                 success: true,
@@ -230,17 +265,10 @@ export async function POST(request: NextRequest) {
                 },
             });
         } else {
-            // Transaction failed - mark for auto-refund
-            await prisma.transaction.update({
-                where: { id: transaction.id },
-                data: {
-                    status: 'refund_pending',
-                    errorMessage: paymentResponse.message || 'PayBeta purchase failed',
-                    refundStatus: 'pending',
-                    refundReason: paymentResponse.message || 'PayBeta purchase failed',
-                    refundRequestedAt: new Date(),
-                },
-            });
+            await settleUtilityEscrowOnBillFailure(
+                transaction.id,
+                paymentResponse.message || 'PayBeta purchase failed',
+            );
 
             return NextResponse.json(
                 { error: paymentResponse.message || 'Failed to purchase data bundle' },
@@ -249,6 +277,17 @@ export async function POST(request: NextRequest) {
         }
     } catch (error: any) {
         console.error('Data bundle purchase error:', error);
+
+        if (transaction) {
+            try {
+                await settleUtilityEscrowOnBillFailure(
+                    transaction.id,
+                    error.message || 'Internal server error during payment processing',
+                );
+            } catch (e) {
+                console.error('Escrow settlement after data-bundle error failed:', e);
+            }
+        }
 
         if (error instanceof z.ZodError) {
             return NextResponse.json(

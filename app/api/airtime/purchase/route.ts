@@ -7,6 +7,11 @@ import { getNetworkById } from '@/lib/networks';
 import { processPayment } from '@/lib/payment-processors';
 import { getCryptobilzClient } from '@/lib/paybeta';
 import { normalizeWalletAddress } from '@/lib/utils';
+import {
+  settleUtilityEscrowOnBillFailure,
+  settleUtilityEscrowOnBillSuccess,
+  verifyUtilityInboundPayment,
+} from '@/lib/utility-escrow';
 import type { SupportedToken, UtilityBillCategory } from '@/types';
 
 const purchaseSchema = z.object({
@@ -43,6 +48,21 @@ export async function POST(request: NextRequest) {
     if (!validated.paymentTxHash) {
       return NextResponse.json(
         { error: 'Payment transaction hash is required' },
+        { status: 400 }
+      );
+    }
+
+    try {
+      await verifyUtilityInboundPayment({
+        paymentTxHash: validated.paymentTxHash,
+        networkChainId: validated.networkChainId,
+        token: validated.token as SupportedToken,
+        tokenAmount: validated.tokenAmount,
+        payerWalletAddress: normalizedWalletAddress,
+      });
+    } catch (verifyErr: any) {
+      return NextResponse.json(
+        { error: verifyErr?.message || 'Payment verification failed' },
         { status: 400 }
       );
     }
@@ -228,15 +248,11 @@ export async function POST(request: NextRequest) {
         reference,
       });
     } catch (processError: any) {
-      // If processPayment throws, mark transaction as failed
       console.error('Error processing payment:', processError);
-      await prisma.transaction.update({
-        where: { id: transaction.id },
-        data: {
-          status: 'failed',
-          errorMessage: processError.message || 'Payment processing failed',
-        },
-      });
+      await settleUtilityEscrowOnBillFailure(
+        transaction.id,
+        processError.message || 'Payment processing failed',
+      );
       return NextResponse.json(
         { error: processError.message || 'Failed to process payment' },
         { status: 500 }
@@ -255,6 +271,8 @@ export async function POST(request: NextRequest) {
           completedAt: new Date(),
         },
       });
+
+      await settleUtilityEscrowOnBillSuccess(transaction.id);
 
       const categoryName = validated.category === 'airtime' ? 'airtime' : validated.category;
 
@@ -291,17 +309,10 @@ export async function POST(request: NextRequest) {
         },
       });
     } else {
-      // Transaction failed - mark for auto-refund
-      await prisma.transaction.update({
-        where: { id: transaction.id },
-        data: {
-          status: 'refund_pending',
-          errorMessage: paymentResponse.message || 'PayBeta purchase failed',
-          refundStatus: 'pending',
-          refundReason: paymentResponse.message || 'PayBeta purchase failed',
-          refundRequestedAt: new Date(),
-        },
-      });
+      await settleUtilityEscrowOnBillFailure(
+        transaction.id,
+        paymentResponse.message || 'PayBeta purchase failed',
+      );
 
       const categoryName = validated.category === 'airtime' ? 'airtime' : validated.category;
 
@@ -316,18 +327,13 @@ export async function POST(request: NextRequest) {
     // Update transaction status to refund_pending if it was created (API error after payment)
     if (transaction) {
       try {
-        await prisma.transaction.update({
-          where: { id: transaction.id },
-          data: {
-            status: 'refund_pending',
-            errorMessage: error.message || 'PayBeta API error: ' + (error.response?.data?.message || 'Unknown error'),
-            refundStatus: 'pending',
-            refundReason: 'API error after payment received',
-            refundRequestedAt: new Date(),
-          },
-        });
+        await settleUtilityEscrowOnBillFailure(
+          transaction.id,
+          error.message ||
+            'PayBeta API error: ' + (error.response?.data?.message || 'Unknown error'),
+        );
       } catch (updateError) {
-        console.error('Failed to update transaction status:', updateError);
+        console.error('Failed to settle escrow after purchase error:', updateError);
       }
     }
 

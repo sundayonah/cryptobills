@@ -284,6 +284,21 @@ export function TransactionHistoryDrawer({ isOpen, onClose }: TransactionHistory
                                             networkName: tx.networkName,
                                             networkChainId: tx.networkChainId,
                                         });
+                                        const treasuryForwardExplorer =
+                                            tx.treasuryForwardTxHash
+                                                ? resolveTxExplorerUrl({
+                                                      txHash: tx.treasuryForwardTxHash,
+                                                      networkName: tx.networkName,
+                                                      networkChainId: tx.networkChainId,
+                                                  })
+                                                : null;
+                                        const refundExplorer = tx.refundTxHash
+                                            ? resolveTxExplorerUrl({
+                                                  txHash: tx.refundTxHash,
+                                                  networkName: tx.networkName,
+                                                  networkChainId: tx.networkChainId,
+                                              })
+                                            : null;
                                         return (
                                         <motion.div
                                             key={tx.id}
@@ -419,7 +434,7 @@ export function TransactionHistoryDrawer({ isOpen, onClose }: TransactionHistory
                                                     </div>
                                                     {explorerUrl && tx.paymentTxHash && (
                                                             <div className="flex items-center justify-between text-sm">
-                                                                <span className="text-gray-600">View in explorer:</span>
+                                                                <span className="text-gray-600">Payment (explorer):</span>
                                                                 <a
                                                                     href={explorerUrl}
                                                                     target="_blank"
@@ -436,6 +451,42 @@ export function TransactionHistoryDrawer({ isOpen, onClose }: TransactionHistory
                                                                 </a>
                                                             </div>
                                                         )}
+                                                    {treasuryForwardExplorer && tx.treasuryForwardTxHash && (
+                                                        <div className="flex items-center justify-between text-sm">
+                                                            <span className="text-gray-600">To treasury:</span>
+                                                            <a
+                                                                href={treasuryForwardExplorer}
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                                onClick={(e) => e.stopPropagation()}
+                                                                className="flex min-w-0 items-center gap-1 font-mono text-xs text-blue-600 hover:text-blue-700 hover:underline"
+                                                            >
+                                                                <span className="max-w-[120px] truncate sm:max-w-none">
+                                                                    {tx.treasuryForwardTxHash.slice(0, 6)}...
+                                                                    {tx.treasuryForwardTxHash.slice(-4)}
+                                                                </span>
+                                                                <ExternalLink className="h-3 w-3 shrink-0" />
+                                                            </a>
+                                                        </div>
+                                                    )}
+                                                    {refundExplorer && tx.refundTxHash && (
+                                                        <div className="flex items-center justify-between text-sm">
+                                                            <span className="text-gray-600">Refund:</span>
+                                                            <a
+                                                                href={refundExplorer}
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                                onClick={(e) => e.stopPropagation()}
+                                                                className="flex min-w-0 items-center gap-1 font-mono text-xs text-blue-600 hover:text-blue-700 hover:underline"
+                                                            >
+                                                                <span className="max-w-[120px] truncate sm:max-w-none">
+                                                                    {tx.refundTxHash.slice(0, 6)}...
+                                                                    {tx.refundTxHash.slice(-4)}
+                                                                </span>
+                                                                <ExternalLink className="h-3 w-3 shrink-0" />
+                                                            </a>
+                                                        </div>
+                                                    )}
                                                     {tx.errorMessage && (
                                                         <div className="mt-2 rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700">
                                                             {tx.errorMessage}

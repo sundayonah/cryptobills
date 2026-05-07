@@ -6,6 +6,11 @@ import { getNetworkById } from '@/lib/networks';
 import { processPayment } from '@/lib/payment-processors';
 import { getCryptobilzClient } from '@/lib/paybeta';
 import { normalizeWalletAddress } from '@/lib/utils';
+import {
+  settleUtilityEscrowOnBillFailure,
+  settleUtilityEscrowOnBillSuccess,
+  verifyUtilityInboundPayment,
+} from '@/lib/utility-escrow';
 import type { SupportedToken } from '@/types';
 
 const purchaseSchema = z.object({
@@ -28,6 +33,7 @@ const purchaseSchema = z.object({
 });
 
 export async function POST(request: NextRequest) {
+  let transaction: { id: string } | null = null;
   try {
     const body = await request.json();
     const validated = purchaseSchema.parse(body);
@@ -45,6 +51,21 @@ export async function POST(request: NextRequest) {
 
     if (!validated.paymentTxHash) {
       return NextResponse.json({ error: 'Payment transaction hash is required' }, { status: 400 });
+    }
+
+    try {
+      await verifyUtilityInboundPayment({
+        paymentTxHash: validated.paymentTxHash,
+        networkChainId: validated.networkChainId,
+        token: validated.token as SupportedToken,
+        tokenAmount: validated.tokenAmount,
+        payerWalletAddress: normalizedWalletAddress,
+      });
+    } catch (verifyErr: any) {
+      return NextResponse.json(
+        { error: verifyErr?.message || 'Payment verification failed' },
+        { status: 400 },
+      );
     }
 
     let ngnAmount: number;
@@ -175,7 +196,7 @@ export async function POST(request: NextRequest) {
       validated.reference || `CRYPTOBILZ-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const serviceName = validated.serviceName || validated.service;
 
-    const transaction = await prisma.transaction.create({
+    transaction = await prisma.transaction.create({
       data: {
         userId: user.id,
         walletAddress: normalizedWalletAddress,
@@ -211,13 +232,10 @@ export async function POST(request: NextRequest) {
       });
     } catch (processError: unknown) {
       console.error('Error processing gaming payment:', processError);
-      await prisma.transaction.update({
-        where: { id: transaction.id },
-        data: {
-          status: 'failed',
-          errorMessage: processError instanceof Error ? processError.message : 'Payment processing failed',
-        },
-      });
+      await settleUtilityEscrowOnBillFailure(
+        transaction.id,
+        processError instanceof Error ? processError.message : 'Payment processing failed',
+      );
       return NextResponse.json(
         { error: processError instanceof Error ? processError.message : 'Failed to process payment' },
         { status: 500 }
@@ -244,6 +262,8 @@ export async function POST(request: NextRequest) {
           completedAt: new Date(),
         },
       });
+
+      await settleUtilityEscrowOnBillSuccess(transaction.id);
 
       return NextResponse.json({
         success: true,
@@ -288,13 +308,10 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    await prisma.transaction.update({
-      where: { id: transaction.id },
-      data: {
-        status: 'failed',
-        errorMessage: paymentResponse.message || 'PayBeta purchase failed',
-      },
-    });
+    await settleUtilityEscrowOnBillFailure(
+      transaction.id,
+      paymentResponse.message || 'PayBeta purchase failed',
+    );
 
     return NextResponse.json(
       { error: paymentResponse.message || 'Failed to purchase gaming top-up' },
@@ -302,6 +319,17 @@ export async function POST(request: NextRequest) {
     );
   } catch (error: unknown) {
     console.error('Gaming purchase error:', error);
+
+    if (transaction) {
+      try {
+        await settleUtilityEscrowOnBillFailure(
+          transaction.id,
+          error instanceof Error ? error.message : 'Internal server error during payment processing',
+        );
+      } catch (e) {
+        console.error('Escrow settlement after gaming purchase error failed:', e);
+      }
+    }
 
     if (error instanceof z.ZodError) {
       return NextResponse.json({ error: 'Validation error', details: error.errors }, { status: 400 });
