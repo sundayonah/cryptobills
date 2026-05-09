@@ -7,11 +7,15 @@ import {
     settleUtilityEscrowOnBillSuccess,
 } from '@/lib/utility-escrow';
 import type { TransactionQueryResponse } from '@/types';
+import {
+    mapPaybetaTransactionToDbStatus,
+    normalizePaybetaCode,
+} from '@/lib/paybeta-transaction-status';
 
 /**
  * Sync transaction status with PayBeta
  * POST /api/transactions/[id]/sync-status
- * 
+ *
  * Queries PayBeta API for the latest transaction status and updates the database.
  * This is useful for handling stuck "processing" transactions.
  */
@@ -62,31 +66,22 @@ export async function POST(
 
         const paybetaData = paybetaResponse.data;
 
-        // Map PayBeta status codes to our transaction status
-        // PayBeta codes: '00' = successful, '01' = pending, '02' = failed, '99' = not found
-        let status: string;
-        let errorMessage: string | null = null;
+        const mapped = mapPaybetaTransactionToDbStatus({
+            code: paybetaResponse.code,
+            responseStatus: paybetaResponse.status,
+            paymentStatus: paybetaData?.paymentStatus,
+            message: paybetaResponse.message,
+            currentDbStatus: transaction.status,
+        });
+        let status = mapped.status;
+        let errorMessage = mapped.errorMessage;
 
-        if (paybetaResponse.code === '00') {
-            // Successful - check paymentStatus for more details
-            if (paybetaData?.paymentStatus?.toLowerCase() === 'delivered') {
-                status = 'completed';
-            } else {
-                status = 'processing'; // Still processing even if code is '00'
-            }
-        } else if (paybetaResponse.code === '01') {
-            status = 'processing';
-            errorMessage = paybetaResponse.message || 'Transaction is pending';
-        } else if (paybetaResponse.code === '02') {
-            status = 'failed';
-            errorMessage = paybetaResponse.message || 'Transaction failed';
-        } else if (paybetaResponse.code === '99') {
-            status = 'failed';
-            errorMessage = paybetaResponse.message || 'Transaction not found or invalid reference';
-        } else {
-            // Unknown code - keep current status but update error message
+        const knownCode = ['00', '01', '02', '99'].includes(
+            normalizePaybetaCode(paybetaResponse.code)
+        );
+        if (!knownCode) {
             status = transaction.status;
-            errorMessage = paybetaResponse.message || 'Unknown transaction status';
+            errorMessage = paybetaResponse.message || mapped.errorMessage;
         }
 
         // Prepare update data

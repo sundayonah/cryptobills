@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { usePrivy } from "@privy-io/react-auth";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -30,6 +30,8 @@ export function TransactionHistoryDrawer({ isOpen, onClose }: TransactionHistory
     const [copied, setCopied] = useState<string | null>(null);
     const [syncingTxId, setSyncingTxId] = useState<string | null>(null);
     const [expandedTxId, setExpandedTxId] = useState<string | null>(null);
+    /** One auto PayBeta sync per drawer open (processing rows with a reference). */
+    const paybetaAutoSyncDoneRef = useRef(false);
 
     const isTxExpanded = (id: string) => expandedTxId === id;
 
@@ -99,6 +101,52 @@ export function TransactionHistoryDrawer({ isOpen, onClose }: TransactionHistory
             setExpandedTxId(null);
         }
     }, [isOpen]);
+
+    useEffect(() => {
+        if (!isOpen) {
+            paybetaAutoSyncDoneRef.current = false;
+        }
+    }, [isOpen]);
+
+    // After history loads, reconcile "processing" rows with PayBeta (reversed/failed stays hidden otherwise).
+    useEffect(() => {
+        if (!isOpen || loading || paybetaAutoSyncDoneRef.current) return;
+        if (transactions.length === 0) return;
+        const pending = transactions.filter(
+            (t) => t.status === "processing" && t.paybetaReference
+        );
+        if (pending.length === 0) return;
+
+        paybetaAutoSyncDoneRef.current = true;
+        let cancelled = false;
+
+        void (async () => {
+            let okCount = 0;
+            for (const tx of pending.slice(0, 15)) {
+                if (cancelled) break;
+                try {
+                    const response = await fetch(`/api/transactions/${tx.id}/sync-status`, {
+                        method: "POST",
+                    });
+                    if (response.ok) okCount++;
+                } catch {
+                    /* ignore */
+                }
+                await new Promise((r) => setTimeout(r, 250));
+            }
+            if (!cancelled && okCount > 0) {
+                await fetchTransactions();
+                toast({
+                    title: "Status updated",
+                    description: `Refreshed ${okCount} pending transaction(s) from PayBeta.`,
+                });
+            }
+        })();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [isOpen, loading, transactions, fetchTransactions, toast]);
 
     const handleCopy = async (text: string, id: string, label: string = "Reference") => {
         const success = await copyToClipboard(text);
