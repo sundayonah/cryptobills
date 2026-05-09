@@ -38,6 +38,12 @@ export default function SupportKitProvider() {
           name: wallet ?? email ?? 'User',
           email: email ?? undefined,
         },
+        theme: {
+          primaryColor: '#000000',
+          textColor: '#000000',
+          backgroundColor: '#ffffff',
+          fontFamily: 'Inter',
+        },
       });
     });
 
