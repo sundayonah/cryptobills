@@ -412,6 +412,7 @@ export interface Config {
     max_amount: number;
     alchemy_api_key: string;
     sponsor_evm_wallet_private_key: string;
+    supportkit_api_key: string;
 }
 
 // ============================================================================

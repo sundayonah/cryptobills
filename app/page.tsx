@@ -1,6 +1,7 @@
 "use client";
 
 import { Header } from "@/components/header";
+import SupportKitProvider from "@/components/supportkit-widget";
 import { AirtimeSwapCard } from "@/components/airtime-swap-card";
 import { DepositFiatCard } from "@/components/deposit-fiat-card";
 import { TitleSkeleton, ViewToggleSkeleton } from "@/components/ui/loading";
@@ -14,6 +15,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-white text-gray-900">
+      <SupportKitProvider />
       <Header />
 
       <main className="container mx-auto px-4 pt-32 md:pt-64 pb-12">
