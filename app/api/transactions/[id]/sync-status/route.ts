@@ -11,6 +11,7 @@ import {
     mapPaybetaTransactionToDbStatus,
     normalizePaybetaCode,
 } from '@/lib/paybeta-transaction-status';
+import { toFloatOrNull } from '@/lib/utils';
 
 /**
  * Sync transaction status with PayBeta
@@ -110,7 +111,10 @@ export async function POST(
 
             // Update charged amount and commission if available
             if (paybetaData.amountPaid) {
-                updateData.chargedAmount = paybetaData.amountPaid;
+                updateData.chargedAmount = toFloatOrNull(paybetaData.amountPaid);
+            }
+            if (paybetaData.commission !== undefined) {
+                updateData.commission = toFloatOrNull(paybetaData.commission);
             }
         }
 

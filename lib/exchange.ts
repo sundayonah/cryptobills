@@ -1,49 +1,51 @@
 /**
  * Exchange rate utilities for USDC/USDT to NGN conversion
- * Uses PayCrest API for real-time exchange rates
+ * Uses Paycrest aggregator v2 rates API
  */
 
-import type { SupportedToken, ExchangeRateResponse, PayCrestResponse } from '@/types';
+import type { SupportedToken, ExchangeRateResponse } from '@/types';
 import config from './config';
+import { fetchPaycrestRateV2 } from './utils';
+
+/** Default network for rate quotes when chain is not specified (bill pay UI). */
+const DEFAULT_RATE_NETWORK = 'base';
 
 /**
- * Get exchange rate from PayCrest API (rate per token)
+ * Get exchange rate from Paycrest v2 (NGN per 1 token).
  * @param token - USDC or USDT
- * @returns Exchange rate (NGN per token)
+ * @param network - Paycrest network slug (base, polygon, arbitrum)
  */
-export async function getExchangeRate(token: SupportedToken): Promise<number> {
+export async function getExchangeRate(
+  token: SupportedToken,
+  network: string = DEFAULT_RATE_NETWORK,
+): Promise<number> {
   try {
-    // PayCrest API endpoint: /v1/rates/{token}/1/ngn
-    // Returns NGN amount for 1 token to get the rate per token
-    const tokenLower = token.toLowerCase();
-    const url = `${config.paycrest_rate_api}/${tokenLower}/1/ngn`;
-
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'Accept': 'application/json',
-      },
+    return await fetchPaycrestRateV2({
+      token,
+      amount: 1,
+      currency: 'NGN',
+      network,
+      side: 'sell',
     });
-
-    if (!response.ok) {
-      throw new Error(`PayCrest API error: ${response.status}`);
-    }
-
-    const data: PayCrestResponse = await response.json();
-
-    if (data.status === 'success' && data.data) {
-      // data.data contains NGN amount for 1 token
-      const ngnFor1 = parseFloat(data.data);
-      if (isNaN(ngnFor1) || ngnFor1 <= 0) {
-        throw new Error('Invalid rate data from API');
-      }
-      return ngnFor1;
-    } else {
-      throw new Error(data.message || 'Invalid API response');
-    }
   } catch (error) {
     console.error(`Error fetching ${token} exchange rate:`, error);
-    // Return fallback rate on error
+    if (config.fallback_rate > 0) {
+      return config.fallback_rate;
+    }
+    // Last resort: USDT tracks USDC; try USDC if USDT quote fails
+    if (token === 'USDT') {
+      try {
+        return await fetchPaycrestRateV2({
+          token: 'USDC',
+          amount: 1,
+          currency: 'NGN',
+          network,
+          side: 'sell',
+        });
+      } catch {
+        /* use zero only if everything fails */
+      }
+    }
     return config.fallback_rate;
   }
 }
@@ -56,7 +58,8 @@ export async function getExchangeRate(token: SupportedToken): Promise<number> {
  */
 export async function convertToNGN(
   tokenAmount: string,
-  token: SupportedToken
+  token: SupportedToken,
+  network: string = DEFAULT_RATE_NETWORK,
 ): Promise<number> {
   try {
     const amount = parseFloat(tokenAmount);
@@ -64,69 +67,14 @@ export async function convertToNGN(
       throw new Error('Invalid token amount');
     }
 
-    // PayCrest API minimum amount is 0.5
-    // For amounts below 0.5, use rate-based calculation (get rate for 1 token, then multiply)
-    const PAYCREST_MIN_AMOUNT = 0.5;
-
-    if (amount < PAYCREST_MIN_AMOUNT) {
-      // For amounts < 0.5 (e.g., 0.1, 0.2), use rate calculation
-      // This works because getExchangeRate() calls /1/ngn which always works
-      const rate = await getExchangeRate(token);
-      return Math.round(amount * rate);
+    const rate = await getExchangeRate(token, network);
+    if (rate <= 0) {
+      throw new Error('No valid exchange rate available');
     }
-
-    // For amounts >= 0.5, try direct API call, but verify the result
-    // PayCrest API endpoint: /v1/rates/{token}/{amount}/ngn
-    // NOTE: Some PayCrest endpoints may return rate for 1 token instead of converted amount
-    const tokenLower = token.toLowerCase();
-    const url = `${config.paycrest_rate_api}/${tokenLower}/${amount}/ngn`;
-
-    // Get rate first for verification
-    const rate = await getExchangeRate(token);
-    const expectedAmount = amount * rate;
-
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'Accept': 'application/json',
-      },
-    });
-
-    if (!response.ok) {
-      // If API fails, use rate calculation
-      return Math.round(expectedAmount);
-    }
-
-    const data: PayCrestResponse = await response.json();
-
-    if (data.status === 'success' && data.data) {
-      const apiNgnAmount = parseFloat(data.data);
-      if (isNaN(apiNgnAmount) || apiNgnAmount <= 0) {
-        // Invalid response, use rate calculation
-        return Math.round(expectedAmount);
-      }
-
-      // Verify API response: If it's suspiciously close to the rate for 1 token (instead of amount for 0.X),
-      // it means API returned rate instead of converted amount
-      // Use rate calculation if API result doesn't make sense
-      const differenceFromRate = Math.abs(apiNgnAmount - rate);
-      const differenceFromExpected = Math.abs(apiNgnAmount - expectedAmount);
-
-      // If API value is closer to rate than to expected amount, it's likely returning rate instead of amount
-      if (differenceFromRate < differenceFromExpected && differenceFromRate < rate * 0.1) {
-        // API likely returned rate for 1 token, use our calculation instead
-        return Math.round(expectedAmount);
-      }
-
-      return Math.round(apiNgnAmount);
-    } else {
-      // API error, use rate calculation
-      return Math.round(expectedAmount);
-    }
+    return Math.round(amount * rate);
   } catch (error) {
     console.error(`Error converting ${tokenAmount} ${token} to NGN:`, error);
-    // Final fallback: use rate calculation if API fails
-    const rate = await getExchangeRate(token);
+    const rate = await getExchangeRate(token, network);
     const amount = parseFloat(tokenAmount);
     return Math.round(amount * rate);
   }

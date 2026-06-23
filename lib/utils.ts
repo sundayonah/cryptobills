@@ -47,6 +47,17 @@ export function normalizeWalletAddress(address: string | null | undefined): stri
   return normalized;
 }
 
+/** Coerce API string/number amounts for Prisma Float fields. */
+export function toFloatOrNull(value: unknown): number | null {
+  if (value == null || value === '') return null;
+  const n = typeof value === 'number' ? value : parseFloat(String(value));
+  return Number.isFinite(n) ? n : null;
+}
+
+export function toFloat(value: unknown, fallback = 0): number {
+  return toFloatOrNull(value) ?? fallback;
+}
+
 /**
  * Copy text to clipboard
  * @param text - The text to copy

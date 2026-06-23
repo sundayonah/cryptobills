@@ -9,6 +9,7 @@ import {
     mapPaybetaTransactionToDbStatus,
     normalizePaybetaCode,
 } from '@/lib/paybeta-transaction-status';
+import { toFloatOrNull } from '@/lib/utils';
 
 /**
  * PayBeta Webhook Endpoint
@@ -97,10 +98,10 @@ export async function POST(request: NextRequest) {
 
             // Update charged amount and commission if available
             if (data.amountPaid) {
-                updateData.chargedAmount = data.amountPaid;
+                updateData.chargedAmount = toFloatOrNull(data.amountPaid);
             }
             if (data.commission !== undefined) {
-                updateData.commission = data.commission;
+                updateData.commission = toFloatOrNull(data.commission);
             }
         }
 

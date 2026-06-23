@@ -6,7 +6,7 @@ import config from '@/lib/config';
 import { getNetworkById } from '@/lib/networks';
 import { processPayment } from '@/lib/payment-processors';
 import { getCryptobilzClient } from '@/lib/paybeta';
-import { normalizeWalletAddress } from '@/lib/utils';
+import { normalizeWalletAddress, toFloatOrNull } from '@/lib/utils';
 import {
   settleUtilityEscrowOnBillFailure,
   settleUtilityEscrowOnBillSuccess,
@@ -31,6 +31,7 @@ const purchaseSchema = z.object({
 
 export async function POST(request: NextRequest) {
   let transaction: any = null;
+  let billPaymentSucceeded = false;
   try {
     const body = await request.json();
     const validated = purchaseSchema.parse(body);
@@ -261,16 +262,21 @@ export async function POST(request: NextRequest) {
 
     // Update transaction with PayBeta response
     if (paymentResponse.status === 'successful' && paymentResponse.data) {
-      await prisma.transaction.update({
-        where: { id: transaction.id },
-        data: {
-          status: 'completed',
-          paybetaTransactionId: paymentResponse.data?.transactionId,
-          chargedAmount: paymentResponse.data?.chargedAmount || null,
-          commission: paymentResponse.data?.commission || null,
-          completedAt: new Date(),
-        },
-      });
+      billPaymentSucceeded = true;
+      try {
+        await prisma.transaction.update({
+          where: { id: transaction.id },
+          data: {
+            status: 'completed',
+            paybetaTransactionId: paymentResponse.data?.transactionId,
+            chargedAmount: toFloatOrNull(paymentResponse.data?.chargedAmount),
+            commission: toFloatOrNull(paymentResponse.data?.commission),
+            completedAt: new Date(),
+          },
+        });
+      } catch (dbErr) {
+        console.error('Failed to update transaction after successful bill:', dbErr);
+      }
 
       await settleUtilityEscrowOnBillSuccess(transaction.id);
 
@@ -325,7 +331,7 @@ export async function POST(request: NextRequest) {
     console.error('Purchase error:', error);
 
     // Update transaction status to refund_pending if it was created (API error after payment)
-    if (transaction) {
+    if (transaction && !billPaymentSucceeded) {
       try {
         await settleUtilityEscrowOnBillFailure(
           transaction.id,

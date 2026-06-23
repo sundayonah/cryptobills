@@ -5,7 +5,7 @@ import { getExchangeRate } from '@/lib/exchange';
 import { getNetworkById } from '@/lib/networks';
 import { processPayment } from '@/lib/payment-processors';
 import { getCryptobilzClient } from '@/lib/paybeta';
-import { normalizeWalletAddress } from '@/lib/utils';
+import { normalizeWalletAddress, toFloatOrNull } from '@/lib/utils';
 import {
   settleUtilityEscrowOnBillFailure,
   settleUtilityEscrowOnBillSuccess,
@@ -34,6 +34,7 @@ const purchaseSchema = z.object({
 
 export async function POST(request: NextRequest) {
   let transaction: { id: string } | null = null;
+  let billPaymentSucceeded = false;
   try {
     const body = await request.json();
     const validated = purchaseSchema.parse(body);
@@ -243,25 +244,30 @@ export async function POST(request: NextRequest) {
     }
 
     if (paymentResponse.status === 'successful' && paymentResponse.data) {
-      await prisma.transaction.update({
-        where: { id: transaction.id },
-        data: {
-          status: 'completed',
-          paybetaTransactionId: paymentResponse.data?.transactionId,
-          chargedAmount: paymentResponse.data?.chargedAmount ?? null,
-          commission: paymentResponse.data?.commission ?? null,
-          biller: paymentResponse.data?.biller ?? null,
-          electricityToken:
-            paymentResponse.data?.token != null ? String(paymentResponse.data.token) : null,
-          electricityUnit:
-            paymentResponse.data?.unit != null ? String(paymentResponse.data.unit) : null,
-          bonusToken:
-            paymentResponse.data?.bonusToken != null && paymentResponse.data.bonusToken !== ''
-              ? String(paymentResponse.data.bonusToken)
-              : null,
-          completedAt: new Date(),
-        },
-      });
+      billPaymentSucceeded = true;
+      try {
+        await prisma.transaction.update({
+          where: { id: transaction.id },
+          data: {
+            status: 'completed',
+            paybetaTransactionId: paymentResponse.data?.transactionId,
+            chargedAmount: toFloatOrNull(paymentResponse.data?.chargedAmount),
+            commission: toFloatOrNull(paymentResponse.data?.commission),
+            biller: paymentResponse.data?.biller ?? null,
+            electricityToken:
+              paymentResponse.data?.token != null ? String(paymentResponse.data.token) : null,
+            electricityUnit:
+              paymentResponse.data?.unit != null ? String(paymentResponse.data.unit) : null,
+            bonusToken:
+              paymentResponse.data?.bonusToken != null && paymentResponse.data.bonusToken !== ''
+                ? String(paymentResponse.data.bonusToken)
+                : null,
+            completedAt: new Date(),
+          },
+        });
+      } catch (dbErr) {
+        console.error('Failed to update transaction after successful bill:', dbErr);
+      }
 
       await settleUtilityEscrowOnBillSuccess(transaction.id);
 
@@ -320,7 +326,7 @@ export async function POST(request: NextRequest) {
   } catch (error: unknown) {
     console.error('Gaming purchase error:', error);
 
-    if (transaction) {
+    if (transaction && !billPaymentSucceeded) {
       try {
         await settleUtilityEscrowOnBillFailure(
           transaction.id,
