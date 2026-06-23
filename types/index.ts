@@ -228,8 +228,11 @@ export interface TransactionQueryResponse {
         reference: string;
         amount: number;
         amountPaid: number;
+        chargedAmount?: number | string;
+        commission?: number | string;
         product: string; // e.g., "GLO AIRTIME", "ABUJA ELECTRIC"
         customerId: string;
+        biller?: string;
         token: string; // Electricity token (for electricity purchases) or "0" for non-electricity
         unit: string; // Electricity units (for electricity purchases) or "0" for non-electricity
         transactionId: string; // PayBeta's internal transaction ID

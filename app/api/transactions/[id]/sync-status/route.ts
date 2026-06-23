@@ -102,8 +102,8 @@ export async function POST(
                 updateData.electricityUnit = paybetaData.unit;
             }
             // Note: biller may not be in TransactionQueryResponse data, only set if available
-            if ('biller' in paybetaData && paybetaData.biller) {
-                updateData.biller = paybetaData.biller as string;
+            if (paybetaData.biller) {
+                updateData.biller = paybetaData.biller;
             }
             if (paybetaData.customerId) {
                 updateData.customerId = paybetaData.customerId;
@@ -112,6 +112,8 @@ export async function POST(
             // Update charged amount and commission if available
             if (paybetaData.amountPaid) {
                 updateData.chargedAmount = toFloatOrNull(paybetaData.amountPaid);
+            } else if (paybetaData.chargedAmount !== undefined) {
+                updateData.chargedAmount = toFloatOrNull(paybetaData.chargedAmount);
             }
             if (paybetaData.commission !== undefined) {
                 updateData.commission = toFloatOrNull(paybetaData.commission);
