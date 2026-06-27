@@ -3,22 +3,27 @@
 import { Header } from "@/components/header";
 import SupportKitProvider from "@/components/supportkit-widget";
 import { AirtimeSwapCard } from "@/components/airtime-swap-card";
+import { FloatingLogosBackground } from "@/components/floating-logos-background";
 import { DepositFiatCard } from "@/components/deposit-fiat-card";
 import { TitleSkeleton, ViewToggleSkeleton } from "@/components/ui/loading";
 import { motion } from "framer-motion";
 import { usePrivy } from "@privy-io/react-auth";
 import { useState } from "react";
+import config from "@/lib/config";
 
 export default function Home() {
   const { ready } = usePrivy();
   const [activeView, setActiveView] = useState<"bills" | "deposit">("bills");
 
   return (
-    <div className="min-h-screen bg-white text-gray-900">
+    <div className="min-h-screen bg-white text-gray-900 relative">
+      {/* Floating Logos Background */}
+      {config.floating_logos_enabled && <FloatingLogosBackground />}
+
       <SupportKitProvider />
       <Header />
 
-      <main className="container mx-auto px-4 pt-32 md:pt-64 pb-12">
+      <main className="container mx-auto px-4 pt-32 md:pt-64 pb-12 relative z-0" style={{ pointerEvents: 'auto' }}>
         {!ready ? (
           <TitleSkeleton />
         ) : (

@@ -226,9 +226,9 @@ export function createCryptobilzClient(apiKey: string): CryptoBilzClient {
     },
 
     /**
-     * Query transaction status using reference
-     * PayBeta API: POST /v2/transaction/query
-     * Note: Base URL already includes /v2, so use /transaction/query
+       * Query transaction status using reference
+       * PayBeta API: POST /v2/transaction/query
+       * Note: Base URL already includes /v2, so use /transaction/query
      */
     async queryTransaction(
       request: TransactionQueryRequest
