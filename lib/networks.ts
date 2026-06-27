@@ -2,6 +2,8 @@
  * Supported blockchain networks configuration
  */
 
+import config from './config';
+
 export interface Network {
   id: number;
   name: string;
@@ -14,17 +16,24 @@ export interface Network {
   rpcUrl?: string;
 }
 
+const alchemy = config.alchemy_api_key?.trim();
+const rpc = {
+  base: alchemy ? `https://base-mainnet.g.alchemy.com/v2/${alchemy}` : 'https://mainnet.base.org',
+  polygon: alchemy ? `https://polygon-mainnet.g.alchemy.com/v2/${alchemy}` : 'https://rpc.ankr.com/polygon',
+  arbitrum: alchemy ? `https://arb-mainnet.g.alchemy.com/v2/${alchemy}` : 'https://arb1.arbitrum.io/rpc',
+};
+
 export const SUPPORTED_NETWORKS: Network[] = [
   {
-    id: 1,
-    name: 'Ethereum',
-    chainId: 'eip155:1',
+    id: 8453,
+    name: 'Base',
+    chainId: 'eip155:8453',
     nativeCurrency: {
       name: 'Ether',
       symbol: 'ETH',
       decimals: 18,
     },
-    rpcUrl: 'https://eth-mainnet.g.alchemy.com/v2/f9VLG4qggmoQThJmgLuSA',
+    rpcUrl: rpc.base,
   },
   {
     id: 137,
@@ -35,7 +44,7 @@ export const SUPPORTED_NETWORKS: Network[] = [
       symbol: 'MATIC',
       decimals: 18,
     },
-    rpcUrl: 'https://polygon-rpc.com',
+    rpcUrl: rpc.polygon,
   },
   {
     id: 42161,
@@ -46,19 +55,20 @@ export const SUPPORTED_NETWORKS: Network[] = [
       symbol: 'ETH',
       decimals: 18,
     },
-    rpcUrl: 'https://arb1.arbitrum.io/rpc',
+    rpcUrl: rpc.arbitrum,
   },
-  {
-    id: 8453,
-    name: 'Base',
-    chainId: 'eip155:8453',
-    nativeCurrency: {
-      name: 'Ether',
-      symbol: 'ETH',
-      decimals: 18,
-    },
-    rpcUrl: 'https://mainnet.base.org',
-  },
+  // {
+  //   id: 1,
+  //   name: 'Ethereum',
+  //   chainId: 'eip155:1',
+  //   nativeCurrency: {
+  //     name: 'Ether',
+  //     symbol: 'ETH',
+  //     decimals: 18,
+  //   },
+  //   rpcUrl: 'https://eth-mainnet.g.alchemy.com/v2/',
+  // },
+
   // Base Sepolia commented out - testnet not needed in production
   // {
   //   id: 84532,

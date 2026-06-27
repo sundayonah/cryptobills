@@ -1,16 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { normalizeWalletAddress } from '@/lib/utils';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
-    const walletAddress = searchParams.get('walletAddress');
+    const walletAddressParam = searchParams.get('walletAddress');
     const limit = parseInt(searchParams.get('limit') || '10');
     const offset = parseInt(searchParams.get('offset') || '0');
 
-    if (!walletAddress) {
+    if (!walletAddressParam) {
       return NextResponse.json(
         { error: 'walletAddress is required' },
+        { status: 400 }
+      );
+    }
+
+    // Normalize wallet address for consistent querying
+    const walletAddress = normalizeWalletAddress(walletAddressParam);
+    if (!walletAddress) {
+      return NextResponse.json(
+        { error: 'Invalid wallet address format' },
         { status: 400 }
       );
     }

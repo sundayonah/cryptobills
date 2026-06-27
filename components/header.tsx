@@ -171,7 +171,7 @@ export function Header() {
                           {/* Mobile: Single wallet button that opens dropdown */}
                           <button
                             onClick={() => setIsMobileDropdownOpen(true)}
-                            className="sm:hidden flex items-center gap-2 min-h-9 px-3 py-2 bg-gray-50 rounded-xl border border-gray-200 hover:bg-gray-100 transition-colors text-xs font-medium text-gray-700"
+                            className="sm:hidden flex items-center gap-2 min-h-9 px-4 py-2 bg-gray-50 rounded-2xl border border-gray-200 hover:bg-gray-100 transition-colors text-xs font-medium text-gray-700"
                           >
                             <Image
                               src={currentNetwork ? getNetworkLogoPath(currentNetwork) : getNetworkLogoPath(1)}
@@ -188,7 +188,7 @@ export function Header() {
                           {/* Desktop: Full address display */}
                           <button
                             onClick={() => handleCopyAddress(walletAddress)}
-                            className="hidden sm:flex items-center gap-2 px-3 py-2 bg-gray-100 rounded-lg border border-gray-200 hover:bg-gray-200 transition-colors cursor-pointer"
+                            className="hidden sm:flex items-center gap-2 px-4 py-2 bg-gray-100 rounded-2xl border border-gray-200 hover:bg-gray-200 transition-colors cursor-pointer"
                             title="Click to copy address"
                           >
                             <Wallet className="h-4 w-4 text-gray-600" />
@@ -209,7 +209,7 @@ export function Header() {
                           {/* Mobile: Email button that opens dropdown */}
                           <button
                             onClick={() => setIsMobileDropdownOpen(true)}
-                            className="sm:hidden flex items-center gap-2 min-h-9 px-3 py-2 bg-gray-50 rounded-xl border border-gray-200 hover:bg-gray-100 transition-colors text-xs font-medium text-gray-700"
+                            className="sm:hidden flex items-center gap-2 min-h-9 px-4 py-2 bg-gray-50 rounded-2xl border border-gray-200 hover:bg-gray-100 transition-colors text-xs font-medium text-gray-700"
                           >
                             <Mail className="h-4 w-4 text-gray-600" />
                             <span className="font-medium">
@@ -218,7 +218,7 @@ export function Header() {
                             <ChevronDown className="h-4 w-4 text-gray-400" />
                           </button>
                           {/* Desktop: Full email display */}
-                          <div className="hidden sm:flex items-center gap-2 px-3 py-2 bg-gray-100 rounded-lg border border-gray-200">
+                          <div className="hidden sm:flex items-center gap-2 px-4 py-2 bg-gray-100 rounded-2xl border border-gray-200">
                             <Mail className="h-4 w-4 text-gray-600" />
                             <span className="text-sm text-gray-700">
                               {user.email.address}
@@ -237,7 +237,7 @@ export function Header() {
                 <>
                   <button
                     onClick={() => setIsMobileDropdownOpen(true)}
-                    className="sm:hidden flex items-center gap-2 min-h-9 px-3 py-2 bg-gray-50 rounded-xl border border-gray-200 hover:bg-gray-100 transition-colors text-xs font-medium text-gray-700"
+                    className="sm:hidden flex items-center gap-2 min-h-9 px-4 py-2 bg-gray-50 rounded-2xl border border-gray-200 hover:bg-gray-100 transition-colors text-xs font-medium text-gray-700"
                   >
                     <Mail className="h-4 w-4 text-gray-600" />
                     <span className="font-medium">
@@ -245,7 +245,7 @@ export function Header() {
                     </span>
                     <ChevronDown className="h-4 w-4 text-gray-400" />
                   </button>
-                  <div className="hidden sm:flex items-center gap-2 px-3 py-2 bg-gray-100 rounded-lg border border-gray-200">
+                  <div className="hidden sm:flex items-center gap-2 px-4 py-2 bg-gray-100 rounded-2xl border border-gray-200">
                     <Mail className="h-4 w-4 text-gray-600" />
                     <span className="text-sm text-gray-700">
                       {user.email.address}
@@ -258,7 +258,7 @@ export function Header() {
               <Button
                 onClick={() => setIsHistoryDrawerOpen(true)}
                 variant="outline"
-                className="hidden sm:flex bg-white border-gray-300 text-gray-900 hover:bg-gray-50 text-sm min-h-9 px-3 py-2"
+                className="hidden sm:flex bg-white border-gray-300 text-gray-900 hover:bg-gray-50 text-sm min-h-9 px-4 py-2"
                 title="View transaction history"
               >
                 <History className="h-4 w-4" />
@@ -267,7 +267,7 @@ export function Header() {
           ) : (
             <Button
               onClick={handleSignIn}
-              className="bg-gray-900 border border-gray-900 text-white hover:bg-gray-800 hover:border-gray-800 text-sm sm:text-base min-h-9 px-3 py-2"
+              className="bg-gray-900 border border-gray-900 text-white hover:bg-gray-800 hover:border-gray-800 text-sm sm:text-base min-h-9 px-4 py-2 rounded-xl"
             >
               Sign in
             </Button>

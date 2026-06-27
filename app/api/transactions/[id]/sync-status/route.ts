@@ -1,12 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getCryptobilzClient } from '@/lib/paybeta';
+import {
+    isEscrowSettlementCategory,
+    settleUtilityEscrowOnBillFailure,
+    settleUtilityEscrowOnBillSuccess,
+} from '@/lib/utility-escrow';
 import type { TransactionQueryResponse } from '@/types';
+import {
+    mapPaybetaTransactionToDbStatus,
+    normalizePaybetaCode,
+} from '@/lib/paybeta-transaction-status';
+import { toFloatOrNull } from '@/lib/utils';
 
 /**
  * Sync transaction status with PayBeta
  * POST /api/transactions/[id]/sync-status
- * 
+ *
  * Queries PayBeta API for the latest transaction status and updates the database.
  * This is useful for handling stuck "processing" transactions.
  */
@@ -57,31 +67,22 @@ export async function POST(
 
         const paybetaData = paybetaResponse.data;
 
-        // Map PayBeta status codes to our transaction status
-        // PayBeta codes: '00' = successful, '01' = pending, '02' = failed, '99' = not found
-        let status: string;
-        let errorMessage: string | null = null;
+        const mapped = mapPaybetaTransactionToDbStatus({
+            code: paybetaResponse.code,
+            responseStatus: paybetaResponse.status,
+            paymentStatus: paybetaData?.paymentStatus,
+            message: paybetaResponse.message,
+            currentDbStatus: transaction.status,
+        });
+        let status = mapped.status;
+        let errorMessage = mapped.errorMessage;
 
-        if (paybetaResponse.code === '00') {
-            // Successful - check paymentStatus for more details
-            if (paybetaData?.paymentStatus?.toLowerCase() === 'delivered') {
-                status = 'completed';
-            } else {
-                status = 'processing'; // Still processing even if code is '00'
-            }
-        } else if (paybetaResponse.code === '01') {
-            status = 'processing';
-            errorMessage = paybetaResponse.message || 'Transaction is pending';
-        } else if (paybetaResponse.code === '02') {
-            status = 'failed';
-            errorMessage = paybetaResponse.message || 'Transaction failed';
-        } else if (paybetaResponse.code === '99') {
-            status = 'failed';
-            errorMessage = paybetaResponse.message || 'Transaction not found or invalid reference';
-        } else {
-            // Unknown code - keep current status but update error message
+        const knownCode = ['00', '01', '02', '99'].includes(
+            normalizePaybetaCode(paybetaResponse.code)
+        );
+        if (!knownCode) {
             status = transaction.status;
-            errorMessage = paybetaResponse.message || 'Unknown transaction status';
+            errorMessage = paybetaResponse.message || mapped.errorMessage;
         }
 
         // Prepare update data
@@ -101,8 +102,8 @@ export async function POST(
                 updateData.electricityUnit = paybetaData.unit;
             }
             // Note: biller may not be in TransactionQueryResponse data, only set if available
-            if ('biller' in paybetaData && paybetaData.biller) {
-                updateData.biller = paybetaData.biller as string;
+            if (paybetaData.biller) {
+                updateData.biller = paybetaData.biller;
             }
             if (paybetaData.customerId) {
                 updateData.customerId = paybetaData.customerId;
@@ -110,7 +111,12 @@ export async function POST(
 
             // Update charged amount and commission if available
             if (paybetaData.amountPaid) {
-                updateData.chargedAmount = paybetaData.amountPaid;
+                updateData.chargedAmount = toFloatOrNull(paybetaData.amountPaid);
+            } else if (paybetaData.chargedAmount !== undefined) {
+                updateData.chargedAmount = toFloatOrNull(paybetaData.chargedAmount);
+            }
+            if (paybetaData.commission !== undefined) {
+                updateData.commission = toFloatOrNull(paybetaData.commission);
             }
         }
 
@@ -124,6 +130,18 @@ export async function POST(
             where: { id: transactionId },
             data: updateData,
         });
+
+        if (isEscrowSettlementCategory(transaction.category)) {
+            if (status === 'completed') {
+                await settleUtilityEscrowOnBillSuccess(updatedTransaction.id);
+            }
+            if (status === 'failed') {
+                await settleUtilityEscrowOnBillFailure(
+                    updatedTransaction.id,
+                    errorMessage || 'PayBeta reported failure',
+                );
+            }
+        }
 
         return NextResponse.json({
             success: true,

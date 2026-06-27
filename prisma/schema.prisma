@@ -6,8 +6,8 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
 }
 
@@ -44,12 +44,15 @@ model Transaction {
   exchangeRate  Float
   paymentTxHash String?
 
+  /// On-chain tx when escrow receives funds are forwarded to treasury (`NEXT_PUBLIC_PAYMENT_RECIPIENT_ADDRESS`)
+  treasuryForwardTxHash String?
+
   // Network/Blockchain details
   networkChainId Int? // Chain ID (1, 137, 42161, 8453, etc.)
   networkName    String? // 'Ethereum', 'Polygon', 'Arbitrum', 'Base', etc.
 
   // Service/Category details
-  category    String // 'airtime', 'data_bundle', 'cable_tv', 'electricity', 'showmax', 'gaming'
+  category    String // 'airtime', 'data_bundle', 'cable_tv', 'electricity', 'showmax', 'gaming', 'onramp'
   service     String // Provider/service code (e.g., 'mtn_vtu', 'glo_vtu', etc.)
   serviceName String? // Human-readable service name (e.g., 'MTN VTU', 'GLO VTU')
   bundleCode  String? // Bundle code for data bundle (e.g., 'MTN_100_MB_DAILY_DATA_BUNDLE')
@@ -78,12 +81,19 @@ model Transaction {
   customerId       String? // Customer ID from PayBeta
 
   // PayBeta integration
-  paybetaReference     String @unique
+  paybetaReference     String  @unique
   paybetaTransactionId String?
 
   // Status tracking
-  status       String // 'pending_payment' | 'payment_received' | 'converting' | 'processing' | 'completed' | 'failed'
+  status       String // 'pending_payment' | 'payment_received' | 'converting' | 'processing' | 'completed' | 'failed' | 'refund_pending' | 'refunded'
   errorMessage String?
+
+  // Refund tracking
+  refundStatus      String? // 'pending' | 'initiated' | 'confirmed' | 'failed'
+  refundTxHash      String?
+  refundReason      String?
+  refundRequestedAt DateTime?
+  refundCompletedAt DateTime?
 
   // Timestamps
   createdAt         DateTime  @default(now())
@@ -97,4 +107,5 @@ model Transaction {
   @@index([status])
   @@index([createdAt])
   @@index([networkChainId])
+  @@index([refundStatus])
 }

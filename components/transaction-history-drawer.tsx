@@ -1,64 +1,88 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { usePrivy } from "@privy-io/react-auth";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, LogOut, Clock, CheckCircle, XCircle, Loader2, Copy, Check, RefreshCw } from "lucide-react";
+import {
+    X,
+    LogOut,
+    Clock,
+    CheckCircle,
+    XCircle,
+    Loader2,
+    Copy,
+    Check,
+    RefreshCw,
+    ExternalLink,
+    ChevronDown,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import { copyToClipboard } from "@/lib/utils";
+import { copyToClipboard, resolveTxExplorerUrl } from "@/lib/utils";
 import { getWalletAddressFromPrivyUser } from "@/lib/privy-utils";
-
-interface Transaction {
-    id: string;
-    category: string;
-    serviceName?: string;
-    status: string;
-    token: string;
-    tokenAmount: string;
-    ngnAmount: number;
-    serviceAmount: number;
-    phoneNumber?: string;
-    meterNumber?: string;
-    accountNumber?: string;
-    electricityToken?: string;
-    electricityUnit?: string;
-    paybetaReference: string;
-    paybetaTransactionId?: string;
-    createdAt: string;
-    completedAt?: string;
-    errorMessage?: string;
-    paymentTxHash?: string;
-}
-
-interface TransactionHistoryDrawerProps {
-    isOpen: boolean;
-    onClose: () => void;
-}
+import type { TransactionHistoryDrawerProps, TransactionHistoryItem } from "@/types";
 
 export function TransactionHistoryDrawer({ isOpen, onClose }: TransactionHistoryDrawerProps) {
     const { authenticated, user, logout } = usePrivy();
     const { toast } = useToast();
-    const [transactions, setTransactions] = useState<Transaction[]>([]);
+    const [transactions, setTransactions] = useState<TransactionHistoryItem[]>([]);
     const [loading, setLoading] = useState(false);
     const [copied, setCopied] = useState<string | null>(null);
     const [syncingTxId, setSyncingTxId] = useState<string | null>(null);
+    const [expandedTxId, setExpandedTxId] = useState<string | null>(null);
+    /** One auto PayBeta sync per drawer open (processing rows with a reference). */
+    const paybetaAutoSyncDoneRef = useRef(false);
+
+    const isTxExpanded = (id: string) => expandedTxId === id;
+
+    const toggleTxExpanded = (id: string) => {
+        setExpandedTxId((prev) => (prev === id ? null : id));
+    };
 
     const fetchTransactions = useCallback(async () => {
         if (!user) return;
 
-        const walletAddress = getWalletAddressFromPrivyUser(user);
-        if (!walletAddress) return;
+        // Get all wallet addresses associated with the user (Privy + external)
+        const walletAddresses: string[] = [];
+        
+        // Add Privy wallet address
+        const privyWalletAddress = getWalletAddressFromPrivyUser(user);
+        if (privyWalletAddress) {
+            walletAddresses.push(privyWalletAddress);
+        }
+        
+        // Add external wallet addresses
+        const externalWallets = user.linkedAccounts?.filter((account: any) =>
+            account.type === 'wallet' &&
+            account.connectorType !== 'embedded' &&
+            (account as any).address
+        ) || [];
+        
+        for (const wallet of externalWallets) {
+            walletAddresses.push((wallet as any).address);
+        }
+        
+        if (walletAddresses.length === 0) return;
 
         setLoading(true);
         try {
-            const response = await fetch(`/api/transactions?walletAddress=${walletAddress}&limit=50`);
-            if (response.ok) {
-                const data = await response.json();
-                setTransactions(data.transactions || []);
-            } else {
-                console.error("Failed to fetch transactions");
+            // Fetch transactions for all wallet addresses
+            const allTransactions: TransactionHistoryItem[] = [];
+            
+            for (const walletAddress of walletAddresses) {
+                const response = await fetch(`/api/transactions?walletAddress=${walletAddress}&limit=50`);
+                if (response.ok) {
+                    const data = await response.json();
+                    allTransactions.push(...(data.transactions || []));
+                }
             }
+            
+            // Remove duplicates and sort by creation date
+            const uniqueTransactions = Array.from(
+                new Map(allTransactions.map(tx => [tx.id, tx])).values()
+            ).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+            
+            setTransactions(uniqueTransactions);
         } catch (error) {
             console.error("Error fetching transactions:", error);
         } finally {
@@ -71,6 +95,58 @@ export function TransactionHistoryDrawer({ isOpen, onClose }: TransactionHistory
             fetchTransactions();
         }
     }, [isOpen, authenticated, user, fetchTransactions]);
+
+    useEffect(() => {
+        if (!isOpen) {
+            setExpandedTxId(null);
+        }
+    }, [isOpen]);
+
+    useEffect(() => {
+        if (!isOpen) {
+            paybetaAutoSyncDoneRef.current = false;
+        }
+    }, [isOpen]);
+
+    // After history loads, reconcile "processing" rows with PayBeta (reversed/failed stays hidden otherwise).
+    useEffect(() => {
+        if (!isOpen || loading || paybetaAutoSyncDoneRef.current) return;
+        if (transactions.length === 0) return;
+        const pending = transactions.filter(
+            (t) => t.status === "processing" && t.paybetaReference
+        );
+        if (pending.length === 0) return;
+
+        paybetaAutoSyncDoneRef.current = true;
+        let cancelled = false;
+
+        void (async () => {
+            let okCount = 0;
+            for (const tx of pending.slice(0, 15)) {
+                if (cancelled) break;
+                try {
+                    const response = await fetch(`/api/transactions/${tx.id}/sync-status`, {
+                        method: "POST",
+                    });
+                    if (response.ok) okCount++;
+                } catch {
+                    /* ignore */
+                }
+                await new Promise((r) => setTimeout(r, 250));
+            }
+            if (!cancelled && okCount > 0) {
+                await fetchTransactions();
+                toast({
+                    title: "Status updated",
+                    description: `Refreshed ${okCount} pending transaction(s) from PayBeta.`,
+                });
+            }
+        })();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [isOpen, loading, transactions, fetchTransactions, toast]);
 
     const handleCopy = async (text: string, id: string, label: string = "Reference") => {
         const success = await copyToClipboard(text);
@@ -143,6 +219,8 @@ export function TransactionHistoryDrawer({ isOpen, onClose }: TransactionHistory
                 return <XCircle className="h-4 w-4 text-red-600" />;
             case "processing":
                 return <Loader2 className="h-4 w-4 text-yellow-600 animate-spin" />;
+            case "refunded":
+                return <RefreshCw className="h-4 w-4 text-blue-600" />;
             default:
                 return <Clock className="h-4 w-4 text-gray-400" />;
         }
@@ -156,6 +234,8 @@ export function TransactionHistoryDrawer({ isOpen, onClose }: TransactionHistory
                 return "text-red-600 bg-red-50 border-red-200";
             case "processing":
                 return "text-yellow-600 bg-yellow-50 border-yellow-200";
+            case "refunded":
+                return "text-blue-700 bg-blue-50 border-blue-200";
             default:
                 return "text-gray-600 bg-gray-50 border-gray-200";
         }
@@ -180,14 +260,21 @@ export function TransactionHistoryDrawer({ isOpen, onClose }: TransactionHistory
             electricity: "Electricity",
             showmax: "Showmax",
             gaming: "Gaming",
+            onramp: "Deposit",
         };
         return labels[category] || category;
     };
 
-    const getRecipientDisplay = (tx: Transaction) => {
+    const getRecipientDisplay = (tx: TransactionHistoryItem) => {
         if (tx.phoneNumber) return tx.phoneNumber;
         if (tx.meterNumber) return `Meter: ${tx.meterNumber}`;
-        if (tx.accountNumber) return `Account: ${tx.accountNumber}`;
+        if (tx.accountNumber) {
+            if (tx.category === "onramp") {
+                const a = tx.accountNumber;
+                return a.length > 12 ? `${a.slice(0, 6)}…${a.slice(-4)}` : a;
+            }
+            return `Account: ${tx.accountNumber}`;
+        }
         return "N/A";
     };
 
@@ -218,7 +305,7 @@ export function TransactionHistoryDrawer({ isOpen, onClose }: TransactionHistory
                             <h2 className="text-xl font-bold text-gray-900">Transaction History</h2>
                             <button
                                 onClick={onClose}
-                                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                                className="p-2 hover:bg-gray-100 rounded-2xl transition-colors"
                             >
                                 <X className="h-5 w-5 text-gray-600" />
                             </button>
@@ -238,126 +325,256 @@ export function TransactionHistoryDrawer({ isOpen, onClose }: TransactionHistory
                                 </div>
                             ) : (
                                 <div className="space-y-3">
-                                    {transactions.map((tx) => (
+                                    {transactions.map((tx) => {
+                                        const expanded = isTxExpanded(tx.id);
+                                        const explorerUrl = resolveTxExplorerUrl({
+                                            txHash: tx.paymentTxHash,
+                                            networkName: tx.networkName,
+                                            networkChainId: tx.networkChainId,
+                                        });
+                                        const treasuryForwardExplorer =
+                                            tx.treasuryForwardTxHash
+                                                ? resolveTxExplorerUrl({
+                                                      txHash: tx.treasuryForwardTxHash,
+                                                      networkName: tx.networkName,
+                                                      networkChainId: tx.networkChainId,
+                                                  })
+                                                : null;
+                                        const refundExplorer = tx.refundTxHash
+                                            ? resolveTxExplorerUrl({
+                                                  txHash: tx.refundTxHash,
+                                                  networkName: tx.networkName,
+                                                  networkChainId: tx.networkChainId,
+                                              })
+                                            : null;
+                                        return (
                                         <motion.div
                                             key={tx.id}
                                             initial={{ opacity: 0, y: 10 }}
                                             animate={{ opacity: 1, y: 0 }}
-                                            className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow"
+                                            className="overflow-hidden rounded-2xl border border-gray-200 transition-shadow hover:shadow-md"
                                         >
-                                            {/* Header with status */}
-                                            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 mb-3">
-                                                <div className="flex-1 min-w-0">
-                                                    <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2 mb-1">
-                                                        <h3 className="font-semibold text-gray-900">{getCategoryLabel(tx.category)}</h3>
-                                                        {tx.serviceName && (
-                                                            <span className="text-sm text-gray-500">• {tx.serviceName}</span>
-                                                        )}
+                                            <button
+                                                type="button"
+                                                onClick={() => toggleTxExpanded(tx.id)}
+                                                aria-expanded={expanded}
+                                                className="w-full p-4 text-left hover:bg-gray-50/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-300 focus-visible:ring-inset"
+                                            >
+                                                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                                    <div className="min-w-0 flex-1">
+                                                        <div className="mb-1 flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
+                                                            <h3 className="font-semibold text-gray-900">
+                                                                {getCategoryLabel(tx.category)}
+                                                            </h3>
+                                                            {tx.serviceName && (
+                                                                <span className="text-sm text-gray-500">• {tx.serviceName}</span>
+                                                            )}
+                                                        </div>
+                                                        <p className="text-sm text-gray-600 break-all">
+                                                            {getRecipientDisplay(tx)}
+                                                        </p>
                                                     </div>
-                                                    <p className="text-sm text-gray-600 break-all">{getRecipientDisplay(tx)}</p>
+                                                    <div className="flex shrink-0 items-center gap-2 self-start sm:self-auto">
+                                                        <div
+                                                            className={`flex w-fit items-center gap-1.5 rounded border px-2 py-1 text-xs font-medium ${getStatusColor(tx.status)}`}
+                                                        >
+                                                            {getStatusIcon(tx.status)}
+                                                            <span className="capitalize">{tx.status}</span>
+                                                        </div>
+                                                        <ChevronDown
+                                                            className={`h-5 w-5 shrink-0 text-gray-400 transition-transform duration-200 ${expanded ? "rotate-180" : ""}`}
+                                                            aria-hidden
+                                                        />
+                                                    </div>
                                                 </div>
-                                                <div className={`flex items-center gap-1.5 px-2 py-1 rounded border text-xs font-medium w-fit ${getStatusColor(tx.status)}`}>
-                                                    {getStatusIcon(tx.status)}
-                                                    <span className="capitalize">{tx.status}</span>
-                                                </div>
-                                            </div>
-
-                                            {/* Amount */}
-                                            <div className="flex items-center justify-between gap-4 mb-3 pb-3 border-b border-gray-100">
-                                                <div className="flex-1 min-w-0">
+                                                <div className="mt-3">
                                                     <p className="text-xs text-gray-500">Amount Paid</p>
-                                                    <p className="text-lg font-bold text-gray-900">₦{(tx.serviceAmount ?? tx.ngnAmount ?? 0).toLocaleString()}</p>
-                                                </div>
-                                                <div className="text-right flex-shrink-0">
-                                                    <p className="text-xs text-gray-500">Token</p>
-                                                    <p className="text-sm font-semibold text-gray-700 whitespace-nowrap">
-                                                        {(() => {
-                                                            const tokenAmount = parseFloat(tx.tokenAmount);
-                                                            return isFinite(tokenAmount) ? tokenAmount.toFixed(4) : "0.0000";
-                                                        })()} {tx.token}
+                                                    <p className="text-lg font-bold text-gray-900">
+                                                        ₦{(tx.serviceAmount ?? tx.ngnAmount ?? 0).toLocaleString()}
                                                     </p>
                                                 </div>
-                                            </div>
+                                                <p className="mt-2 text-xs text-gray-400">
+                                                    {expanded ? "Tap to hide details" : "Tap to show details"}
+                                                </p>
+                                            </button>
 
-                                            {/* Details */}
-                                            <div className="space-y-2">
-                                                {tx.electricityToken && (
-                                                    <div className="flex items-center justify-between text-sm gap-2">
-                                                        <span className="text-gray-600">Token:</span>
+                                            {expanded && (
+                                                <div className="space-y-2 border-t border-gray-100 px-4 pb-4 pt-3">
+                                                    {tx.category !== "gaming" && (
+                                                        <div className="flex items-center justify-between gap-4">
+                                                            <div className="min-w-0 flex-1">
+                                                                <p className="text-xs text-gray-500">
+                                                                    {tx.category === "onramp"
+                                                                        ? "Est. receive (stablecoin)"
+                                                                        : "Token paid"}
+                                                                </p>
+                                                                <p className="text-sm font-semibold whitespace-nowrap text-gray-700">
+                                                                    {(() => {
+                                                                        const tokenAmount = parseFloat(tx.tokenAmount);
+                                                                        return isFinite(tokenAmount)
+                                                                            ? tokenAmount.toFixed(8)
+                                                                            : "0.00000000";
+                                                                    })()}{" "}
+                                                                    {tx.token}
+                                                                </p>
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                    {tx.category !== "gaming" && tx.electricityToken && (
+                                                        <div className="flex items-center justify-between gap-2 text-sm">
+                                                            <span className="text-gray-600">Token:</span>
+                                                            <button
+                                                                type="button"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    void handleCopy(
+                                                                        tx.electricityToken!,
+                                                                        `${tx.id}-token`,
+                                                                        "Token"
+                                                                    );
+                                                                }}
+                                                                className="flex min-w-0 items-center gap-1 break-all text-right font-mono font-semibold text-purple-600 hover:text-purple-700"
+                                                                title="Copy token"
+                                                            >
+                                                                <span className="max-w-[200px] truncate sm:max-w-none">
+                                                                    {tx.electricityToken}
+                                                                </span>
+                                                                {copied === `${tx.id}-token` ? (
+                                                                    <Check className="h-3 w-3 shrink-0" />
+                                                                ) : (
+                                                                    <Copy className="h-3 w-3 shrink-0" />
+                                                                )}
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                    {tx.category !== "gaming" && tx.electricityUnit && (
+                                                        <div className="flex items-center justify-between text-sm">
+                                                            <span className="text-gray-600">Units:</span>
+                                                            <span className="font-semibold text-gray-900">
+                                                                {tx.electricityUnit} kWh
+                                                            </span>
+                                                        </div>
+                                                    )}
+                                                    <div className="flex items-center justify-between text-sm">
+                                                        <span className="text-gray-600">Date:</span>
+                                                        <span className="text-gray-900">{formatDate(tx.createdAt)}</span>
+                                                    </div>
+                                                    <div className="flex items-center justify-between gap-2 text-sm">
+                                                        <span className="shrink-0 text-gray-600">Reference:</span>
                                                         <button
-                                                            onClick={() => handleCopy(tx.electricityToken!, `${tx.id}-token`, "Token")}
-                                                            className="flex items-center gap-1 text-purple-600 hover:text-purple-700 font-mono font-semibold break-all text-right"
-                                                            title="Copy token"
+                                                            type="button"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                void handleCopy(tx.paybetaReference, tx.id, "Reference");
+                                                            }}
+                                                            className="flex min-w-0 items-center gap-1 font-mono text-xs text-purple-600 hover:text-purple-700"
+                                                            title="Copy reference"
                                                         >
-                                                            <span className="max-w-[200px] truncate sm:max-w-none">{tx.electricityToken}</span>
-                                                            {copied === `${tx.id}-token` ? (
-                                                                <Check className="h-3 w-3 flex-shrink-0" />
+                                                            <span className="max-w-[150px] truncate sm:max-w-none">
+                                                                {tx.paybetaReference.slice(0, 8)}...
+                                                            </span>
+                                                            {copied === tx.id ? (
+                                                                <Check className="h-3 w-3 shrink-0" />
                                                             ) : (
-                                                                <Copy className="h-3 w-3 flex-shrink-0" />
+                                                                <Copy className="h-3 w-3 shrink-0" />
                                                             )}
                                                         </button>
                                                     </div>
-                                                )}
-                                                {tx.electricityUnit && (
-                                                    <div className="flex items-center justify-between text-sm">
-                                                        <span className="text-gray-600">Units:</span>
-                                                        <span className="font-semibold text-gray-900">{tx.electricityUnit} kWh</span>
-                                                    </div>
-                                                )}
-                                                <div className="flex items-center justify-between text-sm">
-                                                    <span className="text-gray-600">Date:</span>
-                                                    <span className="text-gray-900">{formatDate(tx.createdAt)}</span>
-                                                </div>
-                                                <div className="flex items-center justify-between text-sm gap-2">
-                                                    <span className="text-gray-600 flex-shrink-0">Reference:</span>
-                                                    <button
-                                                        onClick={() => handleCopy(tx.paybetaReference, tx.id, "Reference")}
-                                                        className="flex items-center gap-1 text-purple-600 hover:text-purple-700 font-mono text-xs min-w-0"
-                                                        title="Copy reference"
-                                                    >
-                                                        <span className="truncate max-w-[150px] sm:max-w-none">{tx.paybetaReference.slice(0, 8)}...</span>
-                                                        {copied === tx.id ? (
-                                                            <Check className="h-3 w-3 flex-shrink-0" />
-                                                        ) : (
-                                                            <Copy className="h-3 w-3 flex-shrink-0" />
+                                                    {explorerUrl && tx.paymentTxHash && (
+                                                            <div className="flex items-center justify-between text-sm">
+                                                                <span className="text-gray-600">Payment (explorer):</span>
+                                                                <a
+                                                                    href={explorerUrl}
+                                                                    target="_blank"
+                                                                    rel="noopener noreferrer"
+                                                                    onClick={(e) => e.stopPropagation()}
+                                                                    className="flex min-w-0 items-center gap-1 font-mono text-xs text-blue-600 hover:text-blue-700 hover:underline"
+                                                                    title="View on blockchain explorer"
+                                                                >
+                                                                    <span className="max-w-[120px] truncate sm:max-w-none">
+                                                                        {tx.paymentTxHash.slice(0, 6)}...
+                                                                        {tx.paymentTxHash.slice(-4)}
+                                                                    </span>
+                                                                    <ExternalLink className="h-3 w-3 shrink-0" />
+                                                                </a>
+                                                            </div>
                                                         )}
-                                                    </button>
-                                                </div>
-                                                {tx.errorMessage && (
-                                                    <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-xs text-red-700">
-                                                        {tx.errorMessage}
-                                                    </div>
-                                                )}
-                                                {/* Sync button for electricity transactions without token/unit or processing status */}
-                                                {tx.category === "electricity" &&
-                                                    (tx.status === "processing" ||
-                                                        tx.status === "payment_received" ||
-                                                        (!tx.electricityToken && tx.status !== "failed")) && (
-                                                        <div className="mt-3 pt-3 border-t border-gray-100">
-                                                            <Button
-                                                                onClick={() => handleSyncTransaction(tx.id)}
-                                                                disabled={syncingTxId === tx.id}
-                                                                variant="outline"
-                                                                size="sm"
-                                                                className="w-full text-xs"
+                                                    {treasuryForwardExplorer && tx.treasuryForwardTxHash && (
+                                                        <div className="flex items-center justify-between text-sm">
+                                                            <span className="text-gray-600">To treasury:</span>
+                                                            <a
+                                                                href={treasuryForwardExplorer}
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                                onClick={(e) => e.stopPropagation()}
+                                                                className="flex min-w-0 items-center gap-1 font-mono text-xs text-blue-600 hover:text-blue-700 hover:underline"
                                                             >
-                                                                {syncingTxId === tx.id ? (
-                                                                    <>
-                                                                        <Loader2 className="h-3 w-3 mr-2 animate-spin" />
-                                                                        Syncing...
-                                                                    </>
-                                                                ) : (
-                                                                    <>
-                                                                        <RefreshCw className="h-3 w-3 mr-2" />
-                                                                        Sync Status
-                                                                    </>
-                                                                )}
-                                                            </Button>
+                                                                <span className="max-w-[120px] truncate sm:max-w-none">
+                                                                    {tx.treasuryForwardTxHash.slice(0, 6)}...
+                                                                    {tx.treasuryForwardTxHash.slice(-4)}
+                                                                </span>
+                                                                <ExternalLink className="h-3 w-3 shrink-0" />
+                                                            </a>
                                                         </div>
                                                     )}
-                                            </div>
+                                                    {refundExplorer && tx.refundTxHash && (
+                                                        <div className="flex items-center justify-between text-sm">
+                                                            <span className="text-gray-600">Refund:</span>
+                                                            <a
+                                                                href={refundExplorer}
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                                onClick={(e) => e.stopPropagation()}
+                                                                className="flex min-w-0 items-center gap-1 font-mono text-xs text-blue-600 hover:text-blue-700 hover:underline"
+                                                            >
+                                                                <span className="max-w-[120px] truncate sm:max-w-none">
+                                                                    {tx.refundTxHash.slice(0, 6)}...
+                                                                    {tx.refundTxHash.slice(-4)}
+                                                                </span>
+                                                                <ExternalLink className="h-3 w-3 shrink-0" />
+                                                            </a>
+                                                        </div>
+                                                    )}
+                                                    {tx.errorMessage && (
+                                                        <div className="mt-2 rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700">
+                                                            {tx.errorMessage}
+                                                        </div>
+                                                    )}
+                                                    {tx.category === "electricity" &&
+                                                        (tx.status === "processing" ||
+                                                            tx.status === "payment_received" ||
+                                                            (!tx.electricityToken && tx.status !== "failed")) && (
+                                                            <div className="mt-3 border-t border-gray-100 pt-3">
+                                                                <Button
+                                                                    type="button"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        void handleSyncTransaction(tx.id);
+                                                                    }}
+                                                                    disabled={syncingTxId === tx.id}
+                                                                    variant="outline"
+                                                                    size="sm"
+                                                                    className="w-full text-xs"
+                                                                >
+                                                                    {syncingTxId === tx.id ? (
+                                                                        <>
+                                                                            <Loader2 className="mr-2 h-3 w-3 animate-spin" />
+                                                                            Syncing...
+                                                                        </>
+                                                                    ) : (
+                                                                        <>
+                                                                            <RefreshCw className="mr-2 h-3 w-3" />
+                                                                            Sync Status
+                                                                        </>
+                                                                    )}
+                                                                </Button>
+                                                            </div>
+                                                        )}
+                                                </div>
+                                            )}
                                         </motion.div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                             )}
                         </div>

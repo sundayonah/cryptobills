@@ -1,44 +1,104 @@
 /**
  * Professional Wallet Payment Handler
- * Handles token transfers from user wallet to payment recipient address
+ * Utility functions for wallet operations and transaction confirmation
  * 
- * Uses Viem + Privy pattern (inspired by Noblocks/Paycrest)
+ * Uses Viem + Privy pattern
  * Compatible with Privy v1.50 (useWallets hook)
  */
 
-import { encodeFunctionData, erc20Abi, parseUnits, type Address, createPublicClient, http, type Hash } from 'viem';
-import { getTokenConfigForChain } from './token-utils';
+import { encodeFunctionData, erc20Abi, type Address, createPublicClient, http, type Hash } from 'viem';
 import { SUPPORTED_NETWORKS } from './networks';
 import config from './config';
-import type { SupportedToken } from '@/types';
+import { getViemChain } from './utils';
+
+function buildPublicRpcByChain(): Record<number, string> {
+  const alchemy = config.alchemy_api_key?.trim();
+  return {
+    8453: alchemy ? `https://base-mainnet.g.alchemy.com/v2/${alchemy}` : 'https://mainnet.base.org',
+    137: alchemy ? `https://polygon-mainnet.g.alchemy.com/v2/${alchemy}` : 'https://rpc.ankr.com/polygon',
+    42161: alchemy ? `https://arb-mainnet.g.alchemy.com/v2/${alchemy}` : 'https://arb1.arbitrum.io/rpc',
+  };
+}
+
+export const PUBLIC_RPC_BY_CHAIN: Record<number, string> = buildPublicRpcByChain();
+
+export function getPublicRpcUrl(chainId: number): string | null {
+  return PUBLIC_RPC_BY_CHAIN[chainId] ?? null;
+}
+
+/**
+ * Browser-side fallbacks for tx receipt polling only.
+ * Must allow CORS from the app origin — many public RPCs block browsers (401/CORS).
+ */
+const BROWSER_RECEIPT_FALLBACK_RPC_BY_CHAIN: Record<number, string[]> = {
+  137: [
+    'https://polygon-bor.publicnode.com',
+    'https://rpc.ankr.com/polygon',
+  ],
+  42161: [
+    'https://arbitrum-one.publicnode.com',
+    'https://arb1.arbitrum.io/rpc',
+  ],
+};
+
+/** Ordered unique RPC candidates for browser waitForTransactionReceipt fallbacks. */
+export function getBatchNonceRpcCandidates(chainId: number): string[] {
+  const primary = getPublicRpcUrl(chainId);
+  const fallbacks = BROWSER_RECEIPT_FALLBACK_RPC_BY_CHAIN[chainId] ?? [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const u of [primary, ...fallbacks]) {
+    if (!u || !u.trim()) continue;
+    const key = u.trim().toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(u.trim());
+  }
+  return out;
+}
+
+/**
+ * Server-only RPC list for POST /api/chain/batch-nonce (no CORS — can use Ankr, etc.).
+ */
+const SERVER_BATCH_NONCE_FALLBACK_RPC: Record<number, string[]> = {
+  137: [
+    'https://polygon-bor.publicnode.com',
+    'https://rpc.ankr.com/polygon',
+    'https://polygon.drpc.org',
+  ],
+  42161: [
+    'https://arbitrum-one.publicnode.com',
+    'https://arb1.arbitrum.io/rpc',
+    'https://arbitrum.drpc.org',
+  ],
+  8453: ['https://base.llamarpc.com', 'https://mainnet.base.org'],
+};
+
+function dedupeRpcUrls(urls: (string | null | undefined)[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of urls) {
+    if (!raw || !String(raw).trim()) continue;
+    const u = String(raw).trim();
+    const key = u.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(u);
+  }
+  return out;
+}
+
+export function getServerBatchNonceRpcCandidates(chainId: number): string[] {
+  const envUrl = typeof process !== 'undefined' ? process.env[`RPC_URL_${chainId}`]?.trim() : '';
+  const primary = getPublicRpcUrl(chainId);
+  const fallbacks = SERVER_BATCH_NONCE_FALLBACK_RPC[chainId] ?? [];
+  // Same pattern as Polygon/Arbitrum: env override, then primary, then fallbacks
+  return dedupeRpcUrls([envUrl, primary, ...fallbacks]);
+}
 
 // ============================================
 // TYPES
 // ============================================
-
-/**
- * Token transfer result
- */
-export interface TokenTransferResult {
-    transactionHash: string;
-    from: string;
-    to: string;
-    amount: string; // Token amount in human-readable format (e.g., "1.0")
-    token: SupportedToken;
-    networkChainId: number;
-    networkName: string;
-    status: 'success' | 'failed';
-}
-
-/**
- * Token transfer parameters
- */
-export interface TokenTransferParams {
-    token: SupportedToken;
-    tokenAmount: string; // Amount in token (e.g., "1.0")
-    recipientAddress?: string; // Optional, defaults to PAYMENT_RECIPIENT_ADDRESS
-    chainId: number; // Network chain ID
-}
 
 /**
  * Privy wallet interface (from useWallets hook)
@@ -59,42 +119,6 @@ export interface EthereumProvider {
     request: (args: { method: string; params?: any[] }) => Promise<any>;
     on?: (event: string, handler: (...args: any[]) => void) => void;
     removeListener?: (event: string, handler: (...args: any[]) => void) => void;
-}
-
-// ============================================
-// VALIDATION
-// ============================================
-
-/**
- * Validate payment recipient address
- */
-function validateRecipientAddress(address?: string): Address {
-    const recipient = address || config.payment_recipient_address;
-
-    if (!recipient) {
-        throw new Error(
-            'Payment recipient address is not configured. ' +
-            'Please set NEXT_PUBLIC_PAYMENT_RECIPIENT_ADDRESS in environment variables.'
-        );
-    }
-
-    // Basic address validation (42 characters, starts with 0x)
-    if (!recipient.startsWith('0x') || recipient.length !== 42) {
-        throw new Error(`Invalid payment recipient address: ${recipient}`);
-    }
-
-    return recipient as Address;
-}
-
-/**
- * Validate token amount
- */
-function validateTokenAmount(amount: string): number {
-    const num = parseFloat(amount);
-    if (isNaN(num) || num <= 0) {
-        throw new Error('Invalid token amount. Amount must be greater than 0.');
-    }
-    return num;
 }
 
 // ============================================
@@ -137,225 +161,254 @@ export async function checkTokenBalance(
     }
 }
 
-// ============================================
-// WALLET TRANSFER
-// ============================================
+type ConfirmedReceipt = { status: 'success' | 'failed'; blockNumber: bigint };
 
-/**
- * Transfer tokens from user wallet to payment recipient address
- * 
- * Uses Viem for encoding and Privy wallet for signing
- * 
- * @param wallet - Privy wallet instance from useWallets hook
- * @param params - Transfer parameters
- * @returns Transfer result with transaction hash and details
- */
-export async function transferTokens(
-    wallet: PrivyWallet,
-    params: TokenTransferParams
-): Promise<TokenTransferResult> {
-    const { token, tokenAmount, recipientAddress, chainId } = params;
+function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
+async function tryGetReceiptFromRpc(
+    txHash: Hash,
+    chainId: number,
+    rpcUrl: string
+): Promise<ConfirmedReceipt | null> {
+    const chain = getViemChain(chainId);
+    if (!chain) return null;
     try {
-        // Validate inputs
-        const amount = validateTokenAmount(tokenAmount);
-        const recipient = validateRecipientAddress(recipientAddress);
-
-        // Get token configuration for the chain
-        const tokenConfig = getTokenConfigForChain(token, chainId);
-        if (!tokenConfig) {
-            throw new Error(`Token ${token} is not supported on chain ${chainId}`);
-        }
-
-        const tokenAddress = tokenConfig.address as Address;
-        const decimals = tokenConfig.decimals;
-
-        // Get wallet address
-        const fromAddress = wallet.address as Address;
-
-        // Get Ethereum provider from Privy wallet (EIP-1193 compatible)
-        const ethereumProvider = await wallet.getEthereumProvider();
-        if (!ethereumProvider) {
-            throw new Error('Failed to get Ethereum provider from wallet');
-        }
-
-        // Check balance before transfer
-        const balance = await checkTokenBalance(
-            ethereumProvider,
-            tokenAddress,
-            fromAddress,
-            decimals
-        );
-
-        const balanceAmount = parseFloat(balance);
-        if (balanceAmount < amount) {
-            throw new Error(
-                `Insufficient balance. You have ${balance} ${token}, but need ${tokenAmount} ${token}.`
-            );
-        }
-
-        // Switch to correct chain if needed
-        const walletChainId = typeof wallet.chainId === 'string'
-            ? parseInt(wallet.chainId.split(':')[1] || wallet.chainId)
-            : wallet.chainId;
-
-        if (walletChainId !== chainId && wallet.switchChain) {
-            try {
-                await wallet.switchChain(chainId);
-            } catch (error: any) {
-                // If switch fails, continue - the user might already be on the correct chain
-                console.warn(`Failed to switch chain to ${chainId}:`, error.message);
-            }
-        }
-
-        // Encode ERC20 transfer function call using Viem
-        const transferData = encodeFunctionData({
-            abi: erc20Abi,
-            functionName: 'transfer',
-            args: [recipient, parseUnits(tokenAmount, decimals)],
+        const client = createPublicClient({
+            chain,
+            transport: http(rpcUrl, { timeout: 22_000 }),
         });
-
-        // Send transaction using EIP-1193 provider (works with Privy and all EIP-1193 wallets)
-        const txHash = await ethereumProvider.request({
-            method: 'eth_sendTransaction',
-            params: [
-                {
-                    from: fromAddress,
-                    to: tokenAddress,
-                    data: transferData,
-                    value: '0x0', // ERC20 transfers don't send ETH
-                },
-            ],
-        });
-
-        // Get network name for display
-        const networkName = getNetworkName(chainId);
-
-        // Wait for transaction confirmation
-        // Note: In production, you might want to poll for confirmation
-        // For now, we'll return the hash immediately and let the caller handle confirmation
-
+        const receipt = await client.getTransactionReceipt({ hash: txHash });
         return {
-            transactionHash: txHash as string,
-            from: fromAddress,
-            to: recipient,
-            amount: tokenAmount,
-            token,
-            networkChainId: chainId,
-            networkName,
-            status: 'success',
+            status: receipt.status === 'success' ? 'success' : 'failed',
+            blockNumber: receipt.blockNumber,
         };
-    } catch (error: any) {
-        // Enhanced error handling
-        if (error.code === 'ACTION_REJECTED' || error.code === 4001) {
-            throw new Error('Transaction rejected by user');
-        }
-
-        if (error.code === 'INSUFFICIENT_FUNDS') {
-            throw new Error('Insufficient funds for gas fee');
-        }
-
-        if (error.message) {
-            throw error;
-        }
-
-        throw new Error(`Token transfer failed: ${error.message || 'Unknown error'}`);
+    } catch {
+        return null;
     }
 }
 
 /**
- * Get network name from chain ID
+ * After primary wait times out, poll multiple RPCs (Polygon is often slow or flaky in browser).
+ * Without a receipt the app never calls purchase APIs - user pays on-chain but gets no service.
  */
-function getNetworkName(chainId: number): string {
-    const networkNames: Record<number, string> = {
-        1: 'Ethereum',
-        137: 'Polygon',
-        42161: 'Arbitrum',
-        8453: 'Base',
-        84532: 'Base Sepolia',
-        // 56: 'BSC', // temporarily commented out
-    };
-    return networkNames[chainId] || `Chain ${chainId}`;
+async function pollReceiptAcrossRpcs(
+    txHash: Hash,
+    chainId: number,
+    totalMs: number,
+    intervalMs: number
+): Promise<ConfirmedReceipt | null> {
+    const urls = getBatchNonceRpcCandidates(chainId);
+    if (urls.length === 0) return null;
+    const deadline = Date.now() + totalMs;
+    let round = 0;
+    while (Date.now() < deadline) {
+        const url = urls[round % urls.length];
+        round++;
+        const r = await tryGetReceiptFromRpc(txHash, chainId, url);
+        if (r) return r;
+        await sleep(intervalMs);
+    }
+    return null;
 }
 
 /**
- * Wait for transaction confirmation using Viem public client
- * 
- * @param txHash - Transaction hash
- * @param chainId - Network chain ID
- * @param maxAttempts - Maximum number of attempts (default: 20)
- * @param delayMs - Delay between attempts in milliseconds (default: 3000)
- * @returns Transaction receipt with status
+ * Wait for transaction confirmation using Viem public client.
+ *
+ * @param maxAttempts - With delayMs, sets minimum wait budget when chain-specific floor applies
  */
 export async function waitForTransactionConfirmation(
     txHash: Hash,
     chainId: number,
     maxAttempts: number = 20,
     delayMs: number = 3000
-): Promise<{ status: 'success' | 'failed'; blockNumber: bigint }> {
-    // Get network configuration
-    const network = SUPPORTED_NETWORKS.find(n => n.id === chainId);
-    if (!network || !network.rpcUrl) {
+): Promise<ConfirmedReceipt> {
+    const network = SUPPORTED_NETWORKS.find((n) => n.id === chainId);
+    if (!network) {
         throw new Error(`Network configuration not found for chain ID ${chainId}`);
     }
+    const rpcUrl = PUBLIC_RPC_BY_CHAIN[chainId] ?? network.rpcUrl;
+    if (!rpcUrl) {
+        throw new Error(`No RPC configured for chain ID ${chainId}`);
+    }
 
-    // Create public client for the network
+    const chain = getViemChain(chainId);
     const publicClient = createPublicClient({
-        transport: http(network.rpcUrl),
+        ...(chain ? { chain } : {}),
+        transport: http(rpcUrl, { timeout: 25_000 }),
     });
 
-    // Wait for transaction receipt
+    const baseTimeout = maxAttempts * delayMs;
+    const waitTimeoutMs =
+        chainId === 137 ? Math.max(baseTimeout, 200_000)
+        : chainId === 42161 ? Math.max(baseTimeout, 120_000)
+        : baseTimeout;
+
+    const extraPollMs =
+        chainId === 137 ? 180_000
+        : chainId === 42161 ? 90_000
+        : 60_000;
+    const pollIntervalMs = chainId === 137 ? 4_000 : 3_500;
+
     try {
         const receipt = await publicClient.waitForTransactionReceipt({
             hash: txHash,
-            timeout: maxAttempts * delayMs, // Total timeout
-            confirmations: 1, // Wait for 1 confirmation
+            timeout: waitTimeoutMs,
+            confirmations: 1,
         });
 
         return {
             status: receipt.status === 'success' ? 'success' : 'failed',
             blockNumber: receipt.blockNumber,
         };
-    } catch (error: any) {
-        // If timeout or other error, check transaction status
+    } catch {
+        const urls = getBatchNonceRpcCandidates(chainId);
+        for (const url of urls) {
+            const r = await tryGetReceiptFromRpc(txHash, chainId, url);
+            if (r) return r;
+        }
+
         try {
             const tx = await publicClient.getTransaction({ hash: txHash });
-            if (tx && tx.blockNumber) {
-                // Transaction is in a block, try to get receipt
+            if (tx?.blockNumber) {
                 const receipt = await publicClient.getTransactionReceipt({ hash: txHash });
                 return {
                     status: receipt.status === 'success' ? 'success' : 'failed',
                     blockNumber: receipt.blockNumber,
                 };
             }
-        } catch (checkError) {
-            // Transaction might not be confirmed yet
+        } catch {
+            // ignore
         }
 
+        const polled = await pollReceiptAcrossRpcs(txHash, chainId, extraPollMs, pollIntervalMs);
+        if (polled) return polled;
+
         throw new Error(
-            `Transaction confirmation timeout after ${maxAttempts} attempts. ` +
-            `Please check the transaction manually: ${txHash}`
+            `Transaction confirmation timed out after extended wait (${Math.round((waitTimeoutMs + extraPollMs) / 1000)}s). ` +
+            `Check the block explorer if the chain succeeded, then contact support with tx: ${txHash}`
         );
     }
 }
 
 // ============================================
-// CONVENIENCE FUNCTIONS
+// EXTERNAL WALLET PAYMENT FUNCTIONS
 // ============================================
 
 /**
- * Complete wallet payment flow
- * Handles the entire flow from validation to transfer
- * 
- * @param wallet - Privy wallet instance from useWallets hook
- * @param params - Transfer parameters
- * @returns Transfer result
+ * Send ERC-20 token transfer using external wallet (MetaMask, Trust Wallet, etc.)
+ * User pays gas fees themselves
  */
-export async function processWalletPayment(
-    wallet: PrivyWallet,
-    params: TokenTransferParams
-): Promise<TokenTransferResult> {
-    return await transferTokens(wallet, params);
+export async function sendExternalWalletTransaction(
+    provider: EthereumProvider,
+    tokenAddress: Address,
+    recipientAddress: Address,
+    amount: bigint,
+    fromAddress: Address
+): Promise<Hash> {
+    try {
+        // Prepare ERC-20 transfer data
+        const transferData = encodeFunctionData({
+            abi: erc20Abi,
+            functionName: 'transfer',
+            args: [recipientAddress, amount],
+        });
+
+        // Send transaction via external wallet
+        const txHash = await provider.request({
+            method: 'eth_sendTransaction',
+            params: [
+                {
+                    from: fromAddress,
+                    to: tokenAddress,
+                    data: transferData,
+                    value: '0x0', // ERC-20 transfers don't send ETH
+                },
+            ],
+        });
+
+        return txHash as Hash;
+    } catch (error: any) {
+        throw new Error(`External wallet transaction failed: ${error.message || error}`);
+    }
+}
+
+/**
+ * Switch network on external wallet if needed
+ */
+export async function switchNetworkIfNeeded(
+    provider: EthereumProvider,
+    targetChainId: number
+): Promise<void> {
+    try {
+        // Get current chain ID
+        const currentChainId = await provider.request({ method: 'eth_chainId' });
+        const currentChainIdDecimal = parseInt(currentChainId, 16);
+
+        if (currentChainIdDecimal !== targetChainId) {
+            // Request network switch
+            await provider.request({
+                method: 'wallet_switchEthereumChain',
+                params: [{ chainId: `0x${targetChainId.toString(16)}` }],
+            });
+        }
+    } catch (error: any) {
+        // If network doesn't exist in wallet, we could add it here
+        // For now, just throw the error
+        throw new Error(`Failed to switch network: ${error.message || error}`);
+    }
+}
+
+/**
+ * Get external wallet provider from Privy wallet object
+ */
+export async function getExternalWalletProvider(wallet: PrivyWallet): Promise<EthereumProvider> {
+    if (wallet.connectorType === 'embedded') {
+        throw new Error('Cannot use embedded wallet as external wallet');
+    }
+
+    const provider = await wallet.getEthereumProvider();
+    if (!provider) {
+        throw new Error('Failed to get provider from external wallet');
+    }
+
+    return provider;
+}
+
+/**
+ * Estimate gas for external wallet transaction
+ */
+export async function estimateExternalWalletGas(
+    provider: EthereumProvider,
+    tokenAddress: Address,
+    recipientAddress: Address,
+    amount: bigint,
+    fromAddress: Address
+): Promise<bigint> {
+    try {
+        const transferData = encodeFunctionData({
+            abi: erc20Abi,
+            functionName: 'transfer',
+            args: [recipientAddress, amount],
+        });
+
+        const gasEstimate = await provider.request({
+            method: 'eth_estimateGas',
+            params: [
+                {
+                    from: fromAddress,
+                    to: tokenAddress,
+                    data: transferData,
+                    value: '0x0',
+                },
+            ],
+        });
+
+        return BigInt(gasEstimate);
+    } catch (error: any) {
+        throw new Error(`Gas estimation failed: ${error.message || error}`);
+    }
 }
 
 // ============================================
@@ -363,14 +416,7 @@ export async function processWalletPayment(
 // ============================================
 
 /**
- * Get wallet address from Privy wallet
- */
-export function getWalletAddress(wallet: PrivyWallet): Address {
-    return wallet.address as Address;
-}
-
-/**
- * Get chain ID from Privy wallet
+ * Get chain ID from Privy wallet (sync; may lag after switchChain).
  */
 export function getWalletChainId(wallet: PrivyWallet): number {
     if (typeof wallet.chainId === 'string') {
@@ -382,9 +428,33 @@ export function getWalletChainId(wallet: PrivyWallet): number {
 }
 
 /**
- * Check if wallet is on the correct chain
+ * Get current chain ID from the wallet's provider (reliable after switchChain).
  */
-export function isWalletOnChain(wallet: PrivyWallet, chainId: number): boolean {
-    const walletChainId = getWalletChainId(wallet);
-    return walletChainId === chainId;
+export async function getWalletChainIdFromProvider(wallet: PrivyWallet): Promise<number> {
+    const provider = await wallet.getEthereumProvider();
+    const hex = await provider.request({ method: 'eth_chainId' });
+    return typeof hex === 'string' ? parseInt(hex, 16) : Number(hex);
+}
+
+const SWITCH_CHAIN_POLL_MS = 400;
+const SWITCH_CHAIN_TIMEOUT_MS = 6000;
+
+/**
+ * After calling wallet.switchChain(chainId), wait until the provider reports the target chain.
+ */
+export async function waitForWalletChain(
+    wallet: PrivyWallet,
+    chainId: number,
+    options?: { pollMs?: number; timeoutMs?: number }
+): Promise<void> {
+    const pollMs = options?.pollMs ?? SWITCH_CHAIN_POLL_MS;
+    const timeoutMs = options?.timeoutMs ?? SWITCH_CHAIN_TIMEOUT_MS;
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        const current = await getWalletChainIdFromProvider(wallet);
+        if (current === chainId) return;
+        await new Promise((r) => setTimeout(r, pollMs));
+    }
+    const current = await getWalletChainIdFromProvider(wallet);
+    throw new Error(`Network switch incomplete. Expected chain ${chainId}, but wallet is on chain ${current}`);
 }

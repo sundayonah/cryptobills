@@ -19,6 +19,8 @@ export interface PurchaseRequest {
     reference: string;
     // Additional fields that might be needed for specific categories
     bouquet?: string; // For Showmax
+    /** Gaming / betting wallet customer ID from validate response */
+    customerId?: string;
     smartCardNumber?: string; // For Cable TV
     customerName?: string; // For Electricity, Cable TV
     customerAddress?: string; // For Electricity
@@ -192,16 +194,48 @@ async function purchaseShowmax(request: PurchaseRequest): Promise<PurchaseRespon
 /**
  * Purchase Gaming
  * POST /gaming/purchase
+ * Body: service, customerId, amount (integer NGN), customerName, reference
  */
 async function purchaseGaming(request: PurchaseRequest): Promise<PurchaseResponse> {
+    const customerId = request.customerId?.trim();
+    if (!customerId) {
+        throw new Error('Customer ID is required for gaming purchase');
+    }
     const paybeta = getPayBetaClient();
-    const response = await paybeta.api.post('/gaming/purchase', {
+    const amountInteger = Math.round(request.amount);
+    const customerName =
+        request.customerName?.trim() || customerId || 'Customer';
+
+    const requestBody = {
         service: request.service,
-        accountNumber: request.accountNumber,
-        amount: request.amount,
+        customerId,
+        amount: amountInteger,
+        customerName,
         reference: request.reference,
-    });
-    return response.data;
+    };
+
+    try {
+        const response = await paybeta.api.post('/gaming/purchase', requestBody);
+        return response.data;
+    } catch (error: any) {
+        const status = error.response?.status;
+        const data = error.response?.data;
+        const msg =
+            (typeof data === 'object' && data?.message) ||
+            (typeof data === 'string' ? data : null) ||
+            error.message ||
+            'Gaming purchase request failed';
+        const errors = data?.data?.errors;
+        const detail =
+            errors != null
+                ? ` ${typeof errors === 'object' ? JSON.stringify(errors) : String(errors)}`
+                : '';
+        if (process.env.NODE_ENV === 'development') {
+            console.error('[Gaming Purchase] PayBeta error:', status, JSON.stringify(data ?? error.message, null, 2));
+            console.error('[Gaming Purchase] Request body:', JSON.stringify(requestBody, null, 2));
+        }
+        throw new Error(`${msg}${detail}${status ? ` (HTTP ${status})` : ''}`);
+    }
 }
 
 /**
@@ -216,6 +250,10 @@ export async function processPayment(request: PurchaseRequest): Promise<Purchase
         electricity: purchaseElectricity,
         showmax: purchaseShowmax,
         gaming: purchaseGaming,
+        transfer: async () => {
+            // Transfer is handled client-side (direct ERC20); never routed here
+            throw new Error('Transfer payments are processed on the client');
+        },
     };
 
     const processor = processorMap[request.category];

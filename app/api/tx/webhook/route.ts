@@ -1,5 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import {
+    isEscrowSettlementCategory,
+    settleUtilityEscrowOnBillFailure,
+    settleUtilityEscrowOnBillSuccess,
+} from '@/lib/utility-escrow';
+import {
+    mapPaybetaTransactionToDbStatus,
+    normalizePaybetaCode,
+} from '@/lib/paybeta-transaction-status';
+import { toFloatOrNull } from '@/lib/utils';
 
 /**
  * PayBeta Webhook Endpoint
@@ -39,31 +49,20 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        // Map PayBeta status codes to our transaction status
-        // PayBeta codes: '00' = successful, '01' = pending, '02' = failed, '99' = not found
-        let dbStatus: string;
-        let errorMessage: string | null = null;
+        const mapped = mapPaybetaTransactionToDbStatus({
+            code,
+            responseStatus: status,
+            paymentStatus: data?.paymentStatus,
+            message: message ?? null,
+            currentDbStatus: transaction.status,
+        });
+        let dbStatus = mapped.status;
+        let errorMessage = mapped.errorMessage;
 
-        if (code === '00') {
-            // Successful - check paymentStatus for more details
-            if (data?.paymentStatus?.toLowerCase() === 'delivered') {
-                dbStatus = 'completed';
-            } else {
-                dbStatus = 'processing'; // Still processing even if code is '00'
-            }
-        } else if (code === '01') {
-            dbStatus = 'processing';
-            errorMessage = message || 'Transaction is pending';
-        } else if (code === '02') {
-            dbStatus = 'failed';
-            errorMessage = message || 'Transaction failed';
-        } else if (code === '99') {
-            dbStatus = 'failed';
-            errorMessage = message || 'Transaction not found or invalid reference';
-        } else {
-            // Unknown code - keep current status but update error message
+        const knownCode = ['00', '01', '02', '99'].includes(normalizePaybetaCode(code));
+        if (!knownCode) {
             dbStatus = transaction.status;
-            errorMessage = message || 'Unknown transaction status';
+            errorMessage = message || mapped.errorMessage;
         }
 
         // Prepare update data
@@ -99,10 +98,10 @@ export async function POST(request: NextRequest) {
 
             // Update charged amount and commission if available
             if (data.amountPaid) {
-                updateData.chargedAmount = data.amountPaid;
+                updateData.chargedAmount = toFloatOrNull(data.amountPaid);
             }
             if (data.commission !== undefined) {
-                updateData.commission = data.commission;
+                updateData.commission = toFloatOrNull(data.commission);
             }
         }
 
@@ -117,8 +116,17 @@ export async function POST(request: NextRequest) {
             data: updateData,
         });
 
-        // Log webhook processing
-        console.log(`Webhook processed: Transaction ${transaction.id} status updated to ${dbStatus}`);
+        if (isEscrowSettlementCategory(transaction.category)) {
+            if (dbStatus === 'completed') {
+                await settleUtilityEscrowOnBillSuccess(updatedTransaction.id);
+            }
+            if (dbStatus === 'failed') {
+                await settleUtilityEscrowOnBillFailure(
+                    updatedTransaction.id,
+                    errorMessage || 'PayBeta reported failure',
+                );
+            }
+        }
 
         // Return 200 to acknowledge receipt (PayBeta expects 200 for successful webhook processing)
         return NextResponse.json({

@@ -141,3 +141,130 @@ export function getWalletTypeFromPrivyUser(user: any): string | null {
 
   return null;
 }
+
+/**
+ * Get all linked wallet accounts from Privy user
+ * Returns both embedded and external wallets with their details
+ */
+export function getLinkedWalletsFromPrivyUser(user: any): Array<{
+  address: string;
+  type: 'embedded' | 'external' | 'smart_wallet';
+  connectorType?: string;
+  connectorName: string;
+  isGasSponsored: boolean;
+}> {
+  if (!user) return [];
+
+  const wallets: Array<{
+    address: string;
+    type: 'embedded' | 'external' | 'smart_wallet';
+    connectorType?: string;
+    connectorName: string;
+    isGasSponsored: boolean;
+  }> = [];
+
+  // Check linkedAccounts for all wallet types
+  if (user.linkedAccounts && Array.isArray(user.linkedAccounts)) {
+    user.linkedAccounts.forEach((account: any) => {
+      if ((account.type === 'wallet' || account.type === 'smart_wallet') && account.address) {
+        const isEmbedded = account.connectorType === 'embedded';
+        const isSmartWallet = account.type === 'smart_wallet';
+        
+        wallets.push({
+          address: account.address.toLowerCase(),
+          type: isEmbedded ? 'embedded' : isSmartWallet ? 'smart_wallet' : 'external',
+          connectorType: account.connectorType,
+          connectorName: getConnectorDisplayName(account.connectorType),
+          isGasSponsored: isEmbedded || isSmartWallet, // Only embedded/smart wallets are gas sponsored
+        });
+      }
+    });
+  }
+
+  // Check user.wallet for direct connections
+  if (user.wallet?.address) {
+    const existingWallet = wallets.find(w => w.address === user.wallet.address.toLowerCase());
+    if (!existingWallet) {
+      wallets.push({
+        address: user.wallet.address.toLowerCase(),
+        type: 'external',
+        connectorName: 'External Wallet',
+        isGasSponsored: false,
+      });
+    }
+  }
+
+  return wallets;
+}
+
+/**
+ * Check if user has multiple wallet options (embedded + linked external)
+ * Returns true if user can choose between Privy wallet and external wallet
+ */
+export function hasMultipleWalletOptions(user: any): boolean {
+  const wallets = getLinkedWalletsFromPrivyUser(user);
+  const hasEmbedded = wallets.some(w => w.type === 'embedded' || w.type === 'smart_wallet');
+  const hasExternal = wallets.some(w => w.type === 'external');
+  
+  return hasEmbedded && hasExternal && wallets.length >= 2;
+}
+
+/**
+ * Get display name for wallet connector type
+ */
+function getConnectorDisplayName(connectorType?: string): string {
+  switch (connectorType) {
+    case 'embedded':
+      return 'Privy Wallet';
+    case 'metamask':
+      return 'MetaMask';
+    case 'phantom':
+      return 'Phantom';
+    case 'wallet_connect':
+      return 'WalletConnect';
+    case 'coinbase_wallet':
+      return 'Coinbase Wallet';
+    case 'trust':
+      return 'Trust Wallet';
+    case 'rainbow':
+      return 'Rainbow';
+    default:
+      return connectorType ? `${connectorType.charAt(0).toUpperCase()}${connectorType.slice(1)}` : 'External Wallet';
+  }
+}
+
+/**
+ * Get embedded/Privy wallet from user (gas sponsored)
+ */
+export function getPrivyWalletFromUser(user: any): {
+  address: string;
+  connectorName: string;
+} | null {
+  const wallets = getLinkedWalletsFromPrivyUser(user);
+  const privyWallet = wallets.find(w => w.isGasSponsored);
+  
+  if (!privyWallet) return null;
+  
+  return {
+    address: privyWallet.address,
+    connectorName: privyWallet.connectorName,
+  };
+}
+
+/**
+ * Get external wallets from user (user pays gas)
+ */
+export function getExternalWalletsFromUser(user: any): Array<{
+  address: string;
+  connectorType?: string;
+  connectorName: string;
+}> {
+  const wallets = getLinkedWalletsFromPrivyUser(user);
+  return wallets
+    .filter(w => w.type === 'external')
+    .map(w => ({
+      address: w.address,
+      connectorType: w.connectorType,
+      connectorName: w.connectorName,
+    }));
+}

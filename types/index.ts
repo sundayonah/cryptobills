@@ -46,6 +46,7 @@ export type UtilityBillCategory =
     | 'data_bundle'
     | 'cable_tv'
     | 'electricity'
+    | 'transfer'
     | 'showmax'
     | 'gaming';
 
@@ -184,6 +185,21 @@ export interface ElectricityPurchaseResponse {
     };
 }
 
+// ============================================================================
+// Gaming (betting wallets) — PayBeta docs: POST /v2/gaming/validate; with PAYBETA_BASE_URL=.../v2 use path /gaming/*
+// ============================================================================
+
+export interface GamingValidationResponse {
+    status: string;
+    message: string;
+    data?: {
+        customerName: string;
+        customerId: string;
+        service: string;
+        minimumAmount: number;
+    };
+}
+
 export interface PayBetaErrorResponse {
     status: string;
     message: string;
@@ -212,8 +228,11 @@ export interface TransactionQueryResponse {
         reference: string;
         amount: number;
         amountPaid: number;
+        chargedAmount?: number | string;
+        commission?: number | string;
         product: string; // e.g., "GLO AIRTIME", "ABUJA ELECTRIC"
         customerId: string;
+        biller?: string;
         token: string; // Electricity token (for electricity purchases) or "0" for non-electricity
         unit: string; // Electricity units (for electricity purchases) or "0" for non-electricity
         transactionId: string; // PayBeta's internal transaction ID
@@ -262,6 +281,41 @@ export interface AirtimeTransaction {
     completedAt?: Date;
 }
 
+/**
+ * Serialized transaction from `GET /api/transactions` (fields used by the history drawer).
+ */
+export interface TransactionHistoryItem {
+    id: string;
+    category: string;
+    serviceName?: string;
+    status: string;
+    token: string;
+    tokenAmount: string;
+    ngnAmount: number;
+    serviceAmount: number;
+    phoneNumber?: string;
+    meterNumber?: string;
+    accountNumber?: string;
+    electricityToken?: string;
+    electricityUnit?: string;
+    paybetaReference: string;
+    paybetaTransactionId?: string;
+    createdAt: string;
+    completedAt?: string;
+    errorMessage?: string;
+    paymentTxHash?: string;
+    /** Escrow → treasury forward after successful utility bill */
+    treasuryForwardTxHash?: string | null;
+    refundTxHash?: string | null;
+    networkName?: string;
+    networkChainId?: number | null;
+}
+
+export interface TransactionHistoryDrawerProps {
+    isOpen: boolean;
+    onClose: () => void;
+}
+
 export interface TransactionCreateInput {
     userId: string;
     walletAddress: string;
@@ -287,14 +341,81 @@ export interface PayCrestResponse {
     metadata: null;
 }
 
+export type PaycrestRateSide = 'buy' | 'sell';
+
+export interface PaycrestV2RateQuoteSide {
+    rate: string;
+    providerIds?: string[];
+    orderType?: string;
+    refundTimeoutMinutes?: number;
+}
+
+export interface PaycrestV2RateQuoteResponse {
+    buy?: PaycrestV2RateQuoteSide | null;
+    sell?: PaycrestV2RateQuoteSide | null;
+}
+
+export interface PaycrestAggregatorRateEnvelope {
+    status: string;
+    message?: string;
+    data?: PaycrestV2RateQuoteResponse;
+}
+
+export interface FetchPaycrestRateV2Params {
+    token: string;
+    amount: number;
+    currency: string;
+    network: string;
+    side: PaycrestRateSide;
+    providerId?: string;
+    signal?: AbortSignal;
+}
+
+// ============================================================================
+// Onramp / fiat deposit
+// ============================================================================
+
+export type OnrampOrder = {
+    id: string;
+    status: string;
+    /** ISO timestamp when the virtual-account funding window ends (v2 sender order). */
+    validUntil: string | null;
+    providerAccount: {
+        institution: string;
+        accountName: string;
+        accountIdentifier: string;
+    } | null;
+    /** On-chain settlement / payout tx when PayCrest exposes it (e.g. after `settled`). */
+    paymentTxHash: string | null;
+};
+
+export type DepositRateData = {
+    token: string;
+    network: string;
+    rate: number;
+};
+
+/** Minimum estimated stablecoin receive for fiat deposits (UI + API validation). */
+export const MIN_DEPOSIT_RECEIVE_STABLE = 0.5;
+
 export interface Config {
     paycrest_rate_api: string;
+    paycrest_onramp_api_url: string;
+    paycrest_sender_api_key: string;
+    paycrest_refund_institution: string;
+    paycrest_refund_account_number: string;
+    paycrest_refund_account_name: string;
     fallback_rate: number;
+    transaction_rate_adjustment: number;
     paybeta_api_key: string;
     paybeta_base_url: string;
+    payment_escrow_address: string;
     payment_recipient_address: string;
     min_amount: number;
     max_amount: number;
+    alchemy_api_key: string;
+    sponsor_evm_wallet_private_key: string;
+    supportkit_api_key: string;
 }
 
 // ============================================================================

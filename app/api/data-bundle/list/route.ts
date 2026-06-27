@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getPayBetaClient } from '@/lib/paybeta';
 import type { DataBundleService, DataBundleListResponse } from '@/types';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * GET /api/data-bundle/list?service=mtn_data
  * Get available data bundle packages for a service

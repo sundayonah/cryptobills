@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getPayBetaClient } from '@/lib/paybeta';
 import type { UtilityBillCategory } from '@/types';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * Generic providers endpoint that works for any category
  * GET /api/providers?category=airtime
@@ -26,6 +28,7 @@ export async function GET(request: NextRequest) {
       electricity: '/electricity/providers',
       showmax: '/showmax/bouquets',
       gaming: '/gaming/providers',
+      transfer: '/transfer',
     };
 
     const apiPath = categoryMap[category];

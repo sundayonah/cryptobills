@@ -7,10 +7,10 @@ const TOKEN_ADDRESSES: Record<
     number,
     { USDC: string; USDT: string }
 > = {
-    1: {
-        // Ethereum Mainnet
-        USDC: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
-        USDT: "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+    8453: {
+        // Base Mainnet
+        USDC: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+        USDT: "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2",
     },
     137: {
         // Polygon Mainnet
@@ -22,12 +22,12 @@ const TOKEN_ADDRESSES: Record<
         USDC: "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
         USDT: "0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9",
     },
-    8453: {
-        // Base Mainnet
-        USDC: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
-        USDT: "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2",
-    },
-    // BSC temporarily commented out due to Privy configuration requirements
+    // 1: {
+    //     // Ethereum Mainnet
+    //     USDC: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+    //     USDT: "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+    // },
+    // BSC temporarily removed from support
     // 56: {
     //     // BSC (Binance Smart Chain) Mainnet
     //     USDC: "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d",

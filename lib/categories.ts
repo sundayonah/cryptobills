@@ -37,16 +37,22 @@ export const UTILITY_CATEGORIES: CategoryConfig[] = [
     apiPath: '/cable',
   },
   {
-    id: 'showmax',
-    name: 'Showmax',
-    enabled: false,
-    apiPath: '/showmax',
+    id: 'transfer',
+    name: 'Transfer',
+    enabled: true,
+    apiPath: '/transfer',
   },
   {
     id: 'gaming',
     name: 'Gaming',
-    enabled: false,
+    enabled: true,
     apiPath: '/gaming',
+  },
+  {
+    id: 'showmax',
+    name: 'Showmax',
+    enabled: false,
+    apiPath: '/showmax',
   },
 ];
 

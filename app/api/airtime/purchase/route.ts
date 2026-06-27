@@ -6,6 +6,12 @@ import config from '@/lib/config';
 import { getNetworkById } from '@/lib/networks';
 import { processPayment } from '@/lib/payment-processors';
 import { getCryptobilzClient } from '@/lib/paybeta';
+import { normalizeWalletAddress, toFloatOrNull } from '@/lib/utils';
+import {
+  settleUtilityEscrowOnBillFailure,
+  settleUtilityEscrowOnBillSuccess,
+  verifyUtilityInboundPayment,
+} from '@/lib/utility-escrow';
 import type { SupportedToken, UtilityBillCategory } from '@/types';
 
 const purchaseSchema = z.object({
@@ -25,14 +31,39 @@ const purchaseSchema = z.object({
 
 export async function POST(request: NextRequest) {
   let transaction: any = null;
+  let billPaymentSucceeded = false;
   try {
     const body = await request.json();
     const validated = purchaseSchema.parse(body);
+
+    // Normalize wallet address for consistent database storage
+    const normalizedWalletAddress = normalizeWalletAddress(validated.walletAddress);
+    if (!normalizedWalletAddress) {
+      return NextResponse.json(
+        { error: 'Invalid wallet address format' },
+        { status: 400 }
+      );
+    }
 
     // Verify payment transaction (you should implement proper verification)
     if (!validated.paymentTxHash) {
       return NextResponse.json(
         { error: 'Payment transaction hash is required' },
+        { status: 400 }
+      );
+    }
+
+    try {
+      await verifyUtilityInboundPayment({
+        paymentTxHash: validated.paymentTxHash,
+        networkChainId: validated.networkChainId,
+        token: validated.token as SupportedToken,
+        tokenAmount: validated.tokenAmount,
+        payerWalletAddress: normalizedWalletAddress,
+      });
+    } catch (verifyErr: any) {
+      return NextResponse.json(
+        { error: verifyErr?.message || 'Payment verification failed' },
         { status: 400 }
       );
     }
@@ -107,18 +138,60 @@ export async function POST(request: NextRequest) {
     const network = validated.networkChainId ? getNetworkById(validated.networkChainId) : null;
 
     // Get or create user
+    // First try to find by wallet address (normalized)
     let user = await prisma.user.findUnique({
-      where: { walletAddress: validated.walletAddress },
+      where: { walletAddress: normalizedWalletAddress },
     });
 
-    if (!user) {
-      user = await prisma.user.create({
-        data: {
-          walletAddress: validated.walletAddress,
-          privyUserId: validated.privyUserId,
-        },
+    // If not found by wallet address, try to find by privyUserId (if provided)
+    if (!user && validated.privyUserId) {
+      user = await prisma.user.findUnique({
+        where: { privyUserId: validated.privyUserId },
       });
+      
+      // If found by privyUserId but wallet address is different, update the wallet address
+      if (user && user.walletAddress !== normalizedWalletAddress) {
+        user = await prisma.user.update({
+          where: { id: user.id },
+          data: { walletAddress: normalizedWalletAddress },
+        });
+      }
+    }
+
+    // If still not found, create new user
+    if (!user) {
+      // Use upsert to handle race conditions where user might be created between checks
+      // First try to find if user exists with privyUserId to avoid unique constraint violation
+      if (validated.privyUserId) {
+        const existingUserByPrivyId = await prisma.user.findUnique({
+          where: { privyUserId: validated.privyUserId },
+        });
+        
+        if (existingUserByPrivyId) {
+          // User exists with this privyUserId, update wallet address
+          user = await prisma.user.update({
+            where: { id: existingUserByPrivyId.id },
+            data: { walletAddress: normalizedWalletAddress },
+          });
+        } else {
+          // No user exists, create new one
+          user = await prisma.user.create({
+            data: {
+              walletAddress: normalizedWalletAddress,
+              privyUserId: validated.privyUserId,
+            },
+          });
+        }
+      } else {
+        // No privyUserId provided, just create with wallet address
+        user = await prisma.user.create({
+          data: {
+            walletAddress: normalizedWalletAddress,
+          },
+        });
+      }
     } else if (validated.privyUserId && !user.privyUserId) {
+      // Update existing user with privyUserId if not already set
       user = await prisma.user.update({
         where: { id: user.id },
         data: { privyUserId: validated.privyUserId },
@@ -138,10 +211,11 @@ export async function POST(request: NextRequest) {
     const serviceName = validated.serviceName || serviceNameMap[validated.service] || validated.service;
 
     // Create transaction record with all details
+    // Use normalized wallet address for consistent database storage
     transaction = await prisma.transaction.create({
       data: {
         userId: user.id,
-        walletAddress: validated.walletAddress,
+        walletAddress: normalizedWalletAddress,
         token: validated.token,
         tokenAmount: validated.tokenAmount,
         ngnAmount,
@@ -175,15 +249,11 @@ export async function POST(request: NextRequest) {
         reference,
       });
     } catch (processError: any) {
-      // If processPayment throws, mark transaction as failed
       console.error('Error processing payment:', processError);
-      await prisma.transaction.update({
-        where: { id: transaction.id },
-        data: {
-          status: 'failed',
-          errorMessage: processError.message || 'Payment processing failed',
-        },
-      });
+      await settleUtilityEscrowOnBillFailure(
+        transaction.id,
+        processError.message || 'Payment processing failed',
+      );
       return NextResponse.json(
         { error: processError.message || 'Failed to process payment' },
         { status: 500 }
@@ -192,14 +262,23 @@ export async function POST(request: NextRequest) {
 
     // Update transaction with PayBeta response
     if (paymentResponse.status === 'successful' && paymentResponse.data) {
-      await prisma.transaction.update({
-        where: { id: transaction.id },
-        data: {
-          status: 'completed',
-          paybetaTransactionId: paymentResponse.data?.transactionId,
-          completedAt: new Date(),
-        },
-      });
+      billPaymentSucceeded = true;
+      try {
+        await prisma.transaction.update({
+          where: { id: transaction.id },
+          data: {
+            status: 'completed',
+            paybetaTransactionId: paymentResponse.data?.transactionId,
+            chargedAmount: toFloatOrNull(paymentResponse.data?.chargedAmount),
+            commission: toFloatOrNull(paymentResponse.data?.commission),
+            completedAt: new Date(),
+          },
+        });
+      } catch (dbErr) {
+        console.error('Failed to update transaction after successful bill:', dbErr);
+      }
+
+      await settleUtilityEscrowOnBillSuccess(transaction.id);
 
       const categoryName = validated.category === 'airtime' ? 'airtime' : validated.category;
 
@@ -236,14 +315,10 @@ export async function POST(request: NextRequest) {
         },
       });
     } else {
-      // Transaction failed
-      await prisma.transaction.update({
-        where: { id: transaction.id },
-        data: {
-          status: 'failed',
-          errorMessage: paymentResponse.message || 'PayBeta purchase failed',
-        },
-      });
+      await settleUtilityEscrowOnBillFailure(
+        transaction.id,
+        paymentResponse.message || 'PayBeta purchase failed',
+      );
 
       const categoryName = validated.category === 'airtime' ? 'airtime' : validated.category;
 
@@ -255,18 +330,16 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error('Purchase error:', error);
 
-    // Update transaction status to failed if it was created
-    if (transaction) {
+    // Update transaction status to refund_pending if it was created (API error after payment)
+    if (transaction && !billPaymentSucceeded) {
       try {
-        await prisma.transaction.update({
-          where: { id: transaction.id },
-          data: {
-            status: 'failed',
-            errorMessage: error.message || 'PayBeta API error: ' + (error.response?.data?.message || 'Unknown error'),
-          },
-        });
+        await settleUtilityEscrowOnBillFailure(
+          transaction.id,
+          error.message ||
+            'PayBeta API error: ' + (error.response?.data?.message || 'Unknown error'),
+        );
       } catch (updateError) {
-        console.error('Failed to update transaction status:', updateError);
+        console.error('Failed to settle escrow after purchase error:', updateError);
       }
     }
 
