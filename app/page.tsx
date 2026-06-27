@@ -9,6 +9,7 @@ import { TitleSkeleton, ViewToggleSkeleton } from "@/components/ui/loading";
 import { motion } from "framer-motion";
 import { usePrivy } from "@privy-io/react-auth";
 import { useState } from "react";
+import config from "@/lib/config";
 
 export default function Home() {
   const { ready } = usePrivy();
@@ -17,7 +18,7 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-white text-gray-900 relative">
       {/* Floating Logos Background */}
-      <FloatingLogosBackground />
+      {config.floating_logos_enabled && <FloatingLogosBackground />}
 
       <SupportKitProvider />
       <Header />

@@ -23,6 +23,7 @@ const config: Config = {
     payment_recipient_address: process.env.NEXT_PUBLIC_PAYMENT_RECIPIENT_ADDRESS || '',
     alchemy_api_key: process.env.ALCHEMY_API_KEY || '',
     supportkit_api_key: process.env.NEXT_PUBLIC_SUPPORT_KIT_API_KEY || '',
+    floating_logos_enabled: process.env.NEXT_PUBLIC_FLOATING_LOGOS_ENABLED !== 'false',
 }
 
 export default config;
