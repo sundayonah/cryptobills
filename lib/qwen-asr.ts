@@ -1,4 +1,5 @@
 import config from '@/lib/config';
+import { fetchWithTimeout } from '@/lib/utils';
 import { getQwenBaseUrl } from '@/lib/qwen-cloud';
 import { normalizeVoiceTranscript } from '@/lib/voice-transcript-normalize';
 import { refineVoiceTranscript } from '@/lib/qwen-voice-refine';
@@ -85,13 +86,14 @@ function buildAsrRequestBodyMinimal(dataUri: string) {
 }
 
 async function callQwenAsr(baseUrl: string, apiKey: string, body: Record<string, unknown>) {
-  const response = await fetch(`${baseUrl}/chat/completions`, {
+  const response = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(body),
+    timeoutMs: 45_000,
   });
 
   if (!response.ok) {

@@ -35,6 +35,7 @@ export function QwenAgentChat() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [payingIntentId, setPayingIntentId] = useState<string | null>(null);
+  const [paidIntentIds, setPaidIntentIds] = useState<Set<string>>(() => new Set());
   const [messages, setMessages] = useState<ChatEntry[]>([STARTER_MESSAGE]);
   const messagesRef = useRef<ChatEntry[]>([STARTER_MESSAGE]);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -155,6 +156,10 @@ export function QwenAgentChat() {
       return;
     }
 
+    if (paidIntentIds.has(messageId)) {
+      return;
+    }
+
     if (!isPaymentRegistered) {
       toast({
         title: "Payment form not ready",
@@ -167,8 +172,9 @@ export function QwenAgentChat() {
     setPayingIntentId(messageId);
     try {
       await payBillFromAgent(intent);
+      setPaidIntentIds((prev) => new Set(prev).add(messageId));
       setMessages((prev) => [
-        ...prev,
+        ...prev.map((m) => (m.id === messageId ? { ...m, billIntent: undefined } : m)),
         {
           id: `assistant-paid-${Date.now()}`,
           role: "assistant",
@@ -259,7 +265,7 @@ export function QwenAgentChat() {
                     }`}
                 >
                   <p className="whitespace-pre-wrap">{message.content}</p>
-                  {message.billIntent && (
+                  {message.billIntent && !paidIntentIds.has(message.id) && (
                     <div className="mt-2 rounded-xl border border-gray-200 bg-white p-3 text-gray-900">
                       <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
                         Confirm payment
@@ -270,7 +276,7 @@ export function QwenAgentChat() {
                       </p>
                       <Button
                         type="button"
-                        disabled={payingIntentId === message.id}
+                        disabled={payingIntentId === message.id || paidIntentIds.has(message.id)}
                         onClick={() => void handleConfirmPayment(message.id, message.billIntent!)}
                         className="mt-3 w-full rounded-xl bg-gray-900 hover:bg-gray-800"
                       >

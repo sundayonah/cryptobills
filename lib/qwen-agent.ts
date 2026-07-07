@@ -312,6 +312,18 @@ async function executeTool(
   name: string,
   args: Record<string, unknown>,
 ): Promise<{ content: string; billIntent?: AgentBillIntent }> {
+  try {
+    return await executeToolInner(name, args);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Service temporarily unavailable';
+    return { content: JSON.stringify({ ok: false, error: message }) };
+  }
+}
+
+async function executeToolInner(
+  name: string,
+  args: Record<string, unknown>,
+): Promise<{ content: string; billIntent?: AgentBillIntent }> {
   switch (name) {
     case 'get_exchange_rates': {
       const rates = await getExchangeRates();

@@ -1,8 +1,11 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
+import { checkAgentRateLimit } from '@/lib/utils';
 import config from '@/lib/config';
 import { isQwenAgentConfigured } from '@/lib/qwen-cloud';
 import { runQwenAgent } from '@/lib/qwen-agent';
+
+const CHAT_RATE_LIMIT = { limit: 20, windowMs: 15 * 60 * 1000 };
 
 export const dynamic = 'force-dynamic';
 
@@ -27,6 +30,17 @@ export async function POST(request: Request) {
     return NextResponse.json(
       { error: 'Qwen Cloud is not configured. Set QWENCLOUD_API_KEY and QWENCLOUD_MODEL.' },
       { status: 503 },
+    );
+  }
+
+  const rateLimit = checkAgentRateLimit(request, CHAT_RATE_LIMIT);
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { error: 'Too many agent requests. Please try again later.' },
+      {
+        status: 429,
+        headers: { 'Retry-After': String(rateLimit.retryAfterSec ?? 60) },
+      },
     );
   }
 
