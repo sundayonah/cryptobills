@@ -416,7 +416,95 @@ export interface Config {
     alchemy_api_key: string;
     sponsor_evm_wallet_private_key: string;
     supportkit_api_key: string;
+    /** Client-visible feature flag for SupportKit support chat widget */
+    supportkit_enabled: boolean;
     floating_logos_enabled: boolean;
+    /** Server-only Qwen Cloud credentials */
+    qwencloud_api_key: string;
+    qwencloud_model: string;
+    qwencloud_base_url: string;
+    qwencloud_workspace_id: string;
+    qwencloud_region: string;
+    qwencloud_asr_model: string;
+    /** Client-visible feature flag for the Qwen bill-pay assistant */
+    qwen_agent_enabled: boolean;
+    /** Client-visible feature flag for voice input (Qwen ASR) */
+    qwen_voice_enabled: boolean;
+}
+
+// ============================================================================
+// Qwen Agent
+// ============================================================================
+
+export interface AgentChatMessage {
+    role: 'user' | 'assistant' | 'system';
+    content: string;
+}
+
+interface AgentBillIntentBase {
+    summary: string;
+}
+
+export interface AgentAirtimeIntent extends AgentBillIntentBase {
+    category: 'airtime';
+    phoneNumber: string;
+    amountNgn: number;
+    service: AirtimeService;
+    providerName: string;
+}
+
+export interface AgentDataBundleIntent extends AgentBillIntentBase {
+    category: 'data_bundle';
+    phoneNumber: string;
+    service: DataBundleService;
+    bundleCode: string;
+    bundleDescription: string;
+    amountNgn: number;
+    providerName: string;
+}
+
+export interface AgentElectricityIntent extends AgentBillIntentBase {
+    category: 'electricity';
+    meterNumber: string;
+    meterType: 'prepaid' | 'postpaid';
+    amountNgn: number;
+    service: string;
+    providerName: string;
+    customerName: string;
+    customerAddress: string;
+}
+
+export interface AgentGamingIntent extends AgentBillIntentBase {
+    category: 'gaming';
+    customerId: string;
+    amountNgn: number;
+    service: string;
+    providerName: string;
+    customerName: string;
+    minimumAmount: number;
+}
+
+export interface AgentCableTvIntent extends AgentBillIntentBase {
+    category: 'cable_tv';
+    smartCardNumber: string;
+    service: string;
+    packageCode: string;
+    packageDescription: string;
+    amountNgn: number;
+    providerName: string;
+    customerName: string;
+}
+
+export type AgentBillIntent =
+    | AgentAirtimeIntent
+    | AgentDataBundleIntent
+    | AgentElectricityIntent
+    | AgentGamingIntent
+    | AgentCableTvIntent;
+
+export interface AgentChatResponse {
+    message: string;
+    billIntent?: AgentBillIntent;
 }
 
 // ============================================================================

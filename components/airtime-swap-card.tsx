@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { flushSync } from "react-dom";
 import { usePrivy, useSendTransaction, useWallets } from "@privy-io/react-auth";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -49,7 +50,8 @@ import {
 } from "@/lib/providerBatch";
 import { useDelegationContractAuth } from "@/hooks/useDelegationContractAuth";
 import { convertToNGN } from "@/lib/exchange";
-import type { SupportedToken, AirtimeService, AirtimeProvider, UtilityBillCategory, DataBundleService, DataBundlePackage } from "@/types";
+import type { SupportedToken, AirtimeService, AirtimeProvider, UtilityBillCategory, DataBundleService, DataBundlePackage, AgentBillIntent } from "@/types";
+import { useAgentBillPay } from "@/contexts/agent-bill-pay-context";
 import { motion } from "framer-motion";
 import { Loader2, ArrowDown, Wallet, X, Copy, Share2, Check } from "lucide-react";
 import { getTokenLogoPath } from "@/lib/network-utils";
@@ -264,6 +266,9 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
   // Fetch providers based on selected category
   useEffect(() => {
     const fetchProviders = async () => {
+      if (agentPaymentSuppressEffectsRef.current) {
+        return;
+      }
       // Transfer has no providers (wallet-to-wallet only); skip API call
       if (selectedCategory === 'transfer') {
         setProviders([]);
@@ -449,8 +454,7 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
 
       if (response.ok && data.status === "successful" && data.data?.packages) {
         setBundles(data.data.packages);
-        // Auto-select first bundle if available
-        if (data.data.packages.length > 0) {
+        if (!agentPaymentSuppressEffectsRef.current && data.data.packages.length > 0) {
           setSelectedBundle(data.data.packages[0].code);
           setValue("bundleCode", data.data.packages[0].code);
           // Set amount to bundle price in NGN (convert from string to number)
@@ -716,6 +720,9 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
 
   // Watch for service changes in data bundle category
   useEffect(() => {
+    if (agentPaymentSuppressEffectsRef.current) {
+      return;
+    }
     if (selectedCategory === "data_bundle" && selectedService && selectedService.trim() !== "") {
       fetchBundles(selectedService as DataBundleService);
     } else {
@@ -935,8 +942,11 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
   }, [selectedCategory, setValue]);
 
   const onSubmit = async (data: AirtimeFormData) => {
+    const agentSnap = agentPaymentRef.current ? agentPaymentSnapshotRef.current : null;
+    const categoryId = (agentSnap?.activeCategory ?? selectedCategory) as UtilityBillCategory;
+
     // Check if selected category is enabled
-    const category = UTILITY_CATEGORIES.find(cat => cat.id === selectedCategory);
+    const category = UTILITY_CATEGORIES.find(cat => cat.id === categoryId);
     if (!category || !category.enabled) {
       toast({
         title: "Service Not Available",
@@ -946,9 +956,18 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
       return;
     }
 
+    const activeMeterValidation = agentSnap?.meterValidation ?? meterValidation;
+    const activeGamingValidation = agentSnap?.gamingValidation ?? gamingValidation;
+    const activeSmartCardValidation = agentSnap?.smartCardValidation ?? smartCardValidation;
+    const activeBundles = agentSnap?.bundles ?? bundles;
+    const activeSelectedBundle = agentSnap?.selectedBundle ?? selectedBundle;
+    const activeSelectedPackage = agentSnap?.selectedPackage ?? selectedPackage;
+    const activeCablePackages = agentSnap?.cablePackages ?? cablePackages;
+    const activeMeterType = agentSnap?.meterType ?? meterType;
+
     // Custom validation for data bundles and cable TV
-    if (selectedCategory === "data_bundle" && selectedBundle) {
-      const bundle = bundles.find(b => b.code === selectedBundle);
+    if (categoryId === "data_bundle" && activeSelectedBundle) {
+      const bundle = activeBundles.find(b => b.code === activeSelectedBundle);
       if (bundle && (!data.amount || parseFloat(data.amount) <= 0)) {
         // Force set the amount if it's not properly set
         const bundlePrice = parseFloat(bundle.price);
@@ -960,8 +979,8 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
           await trigger("amount");
         }
       }
-    } else if (selectedCategory === "cable_tv" && selectedPackage) {
-      const pkg = cablePackages.find(p => p.code === selectedPackage);
+    } else if (categoryId === "cable_tv" && activeSelectedPackage) {
+      const pkg = activeCablePackages.find(p => p.code === activeSelectedPackage);
       if (pkg && (!data.amount || parseFloat(data.amount) <= 0)) {
         // Force set the amount if it's not properly set
         const packagePrice = parseFloat(pkg.price);
@@ -976,7 +995,7 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
     }
 
     // Validate phone number for airtime and data bundle
-    if (selectedCategory !== "transfer" && (selectedCategory === "airtime" || selectedCategory === "data_bundle") && !/^0\d{10}$/.test(data.phoneNumber ?? "")) {
+    if (categoryId !== "transfer" && (categoryId === "airtime" || categoryId === "data_bundle") && !/^0\d{10}$/.test(data.phoneNumber ?? "")) {
       toast({
         title: "Invalid Phone Number",
         description: "Please enter a valid Nigerian phone number (e.g., 08123456789)",
@@ -986,8 +1005,8 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
     }
 
     // Validate meter for electricity
-    if (selectedCategory === "electricity") {
-      if (!meterType) {
+    if (categoryId === "electricity") {
+      if (!activeMeterType) {
         toast({
           title: "Meter Type Required",
           description: "Please select meter type (Prepaid or Postpaid)",
@@ -995,7 +1014,7 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
         });
         return;
       }
-      if (!meterValidation) {
+      if (!activeMeterValidation) {
         toast({
           title: "Meter Not Validated",
           description: "Please validate your meter number first",
@@ -1006,7 +1025,7 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
     }
 
     // Validate gaming account
-    if (selectedCategory === "gaming") {
+    if (categoryId === "gaming") {
       if (!data.phoneNumber?.trim()) {
         toast({
           title: "Customer ID required",
@@ -1015,7 +1034,7 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
         });
         return;
       }
-      if (!gamingValidation) {
+      if (!activeGamingValidation) {
         toast({
           title: "Customer ID not validated",
           description: "Please validate your customer ID first",
@@ -1023,7 +1042,7 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
         });
         return;
       }
-      const minNgn = gamingValidation.minimumAmount;
+      const minNgn = activeGamingValidation.minimumAmount;
       const inputNgnAmount = Math.round(parseFloat(data.amount));
       if (!isNaN(inputNgnAmount) && inputNgnAmount < minNgn) {
         toast({
@@ -1036,7 +1055,7 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
     }
 
     // Validate minimum amount for airtime (100 NGN minimum)
-    if (selectedCategory === "airtime") {
+    if (categoryId === "airtime") {
       const inputNgnAmount = parseFloat(data.amount);
       if (!isNaN(inputNgnAmount) && inputNgnAmount < 100) {
         toast({
@@ -1049,7 +1068,7 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
     }
 
     // Validate minimum amount for electricity (1000 NGN minimum)
-    if (selectedCategory === "electricity") {
+    if (categoryId === "electricity") {
       const inputNgnAmount = parseFloat(data.amount);
       if (!isNaN(inputNgnAmount) && inputNgnAmount < 1000) {
         toast({
@@ -1062,7 +1081,7 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
     }
 
     // Validate bundle code for data bundle
-    if (selectedCategory === "data_bundle" && !data.bundleCode) {
+    if (categoryId === "data_bundle" && !data.bundleCode) {
       toast({
         title: "Bundle Required",
         description: "Please select a data bundle",
@@ -1091,9 +1110,9 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
     // For other categories, inputAmount is token amount, compare directly
     let tokenAmountToCheck: number;
     if (
-      selectedCategory === "airtime" ||
-      selectedCategory === "electricity" ||
-      selectedCategory === "gaming"
+      categoryId === "airtime" ||
+      categoryId === "electricity" ||
+      categoryId === "gaming"
     ) {
       if (calculatedTokenAmount !== null) {
         tokenAmountToCheck = calculatedTokenAmount;
@@ -1107,7 +1126,7 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
       }
     } else {
       tokenAmountToCheck =
-        selectedCategory === "transfer" ? inputAmount : applyRateAdjustment(inputAmount);
+        categoryId === "transfer" ? inputAmount : applyRateAdjustment(inputAmount);
     }
 
     if (tokenAmountToCheck > balanceAmount) {
@@ -1225,7 +1244,7 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
       // HANDLE TRANSFER CATEGORY (SKIP EXCHANGE RATE & PAYBETA)
       // ============================================
 
-      if (selectedCategory === 'transfer') {
+      if (categoryId === 'transfer') {
         // For transfers, we skip exchange rate and PayBeta checks
         // User enters token amount directly, not NGN
 
@@ -1370,7 +1389,7 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
       let tokenAmountForTransfer: string; // Token amount to transfer from wallet
 
       try {
-        if (selectedCategory === "airtime" || selectedCategory === "electricity" || selectedCategory === "gaming") {
+        if (categoryId === "airtime" || categoryId === "electricity" || categoryId === "gaming") {
           // For airtime, electricity, gaming: data.amount is NGN (integer from input)
           const inputNgnAmount = parseFloat(data.amount);
           if (isNaN(inputNgnAmount) || inputNgnAmount <= 0) {
@@ -1407,7 +1426,7 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
       }
 
       // Validate minimum amount for electricity (PayBeta requires minimum 1000 NGN)
-      if (selectedCategory === "electricity") {
+      if (categoryId === "electricity") {
         const ELECTRICITY_MIN_AMOUNT_NGN = 1000;
         const roundedNgnAmount = Math.round(ngnAmount);
         if (roundedNgnAmount < ELECTRICITY_MIN_AMOUNT_NGN) {
@@ -1421,12 +1440,12 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
         }
       }
 
-      if (selectedCategory === "gaming" && gamingValidation) {
+      if (categoryId === "gaming" && activeGamingValidation) {
         const roundedNgnAmount = Math.round(ngnAmount);
-        if (roundedNgnAmount < gamingValidation.minimumAmount) {
+        if (roundedNgnAmount < activeGamingValidation.minimumAmount) {
           toast({
             title: "Amount Too Low",
-            description: `This gaming provider requires at least ₦${gamingValidation.minimumAmount.toLocaleString()}. Your amount (₦${roundedNgnAmount.toLocaleString()}) is too low.`,
+            description: `This gaming provider requires at least ₦${activeGamingValidation.minimumAmount.toLocaleString()}. Your amount (₦${roundedNgnAmount.toLocaleString()}) is too low.`,
             variant: "destructive",
           });
           setIsProcessing(false);
@@ -1643,16 +1662,18 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
       // ============================================
 
       // Get service name from selected provider
-      const selectedProvider = providers.find(p => p.service === data.service);
+      const selectedProvider = (agentSnap?.providers ?? providers).find(
+        (p) => p.service === data.service,
+      );
       const serviceName = selectedProvider?.name || data.service;
 
       // Use category-specific purchase endpoint
-      const category = UTILITY_CATEGORIES.find(cat => cat.id === selectedCategory);
+      const category = UTILITY_CATEGORIES.find(cat => cat.id === categoryId);
       const purchaseEndpoint = category?.id === 'airtime'
         ? "/api/airtime/purchase"
         : category?.id === 'data_bundle'
           ? "/api/data-bundle/purchase"
-          : `/api/${selectedCategory}/purchase`;
+          : `/api/${categoryId}/purchase`;
 
       // Ensure wallet address is properly set
       if (!walletAddress || !selectedWalletAddress) {
@@ -1667,57 +1688,57 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
         service: data.service,
         serviceName: serviceName,
         paymentTxHash: txHash,
-        category: selectedCategory,
+        category: categoryId,
         networkChainId: chainIdNum,
       };
 
       // Add category-specific fields
-      if (selectedCategory === "airtime" || selectedCategory === "data_bundle") {
+      if (categoryId === "airtime" || categoryId === "data_bundle") {
         purchaseBody.phoneNumber = data.phoneNumber;
       }
 
       // For airtime, electricity, gaming: send serviceAmount (NGN integer)
-      if (selectedCategory === "airtime" || selectedCategory === "electricity" || selectedCategory === "gaming") {
+      if (categoryId === "airtime" || categoryId === "electricity" || categoryId === "gaming") {
         purchaseBody.serviceAmount = Math.round(ngnAmount); // NGN amount (integer)
       }
 
-      if (selectedCategory === "data_bundle" && data.bundleCode) {
+      if (categoryId === "data_bundle" && data.bundleCode) {
         purchaseBody.code = data.bundleCode;
         // Send exact bundle price in NGN
-        const selectedBundleObj = bundles.find(b => b.code === data.bundleCode);
+        const selectedBundleObj = activeBundles.find(b => b.code === data.bundleCode);
         if (selectedBundleObj) {
           purchaseBody.serviceAmount = parseFloat(selectedBundleObj.price); // Exact NGN price from bundle
         }
       }
 
-      if (selectedCategory === "electricity") {
+      if (categoryId === "electricity") {
         purchaseBody.meterNumber = data.phoneNumber; // Reuse phoneNumber field for meter number
-        purchaseBody.meterType = meterType;
-        if (meterValidation) {
-          purchaseBody.customerName = meterValidation.customerName;
-          purchaseBody.customerAddress = meterValidation.customerAddress;
+        purchaseBody.meterType = activeMeterType;
+        if (activeMeterValidation) {
+          purchaseBody.customerName = activeMeterValidation.customerName;
+          purchaseBody.customerAddress = activeMeterValidation.customerAddress;
         }
       }
 
-      if (selectedCategory === "cable_tv") {
+      if (categoryId === "cable_tv") {
         purchaseBody.smartCardNumber = data.phoneNumber; // Reuse phoneNumber field for smart card number
-        purchaseBody.packageCode = selectedPackage;
-        if (smartCardValidation) {
-          purchaseBody.customerName = smartCardValidation.customerName;
+        purchaseBody.packageCode = activeSelectedPackage;
+        if (activeSmartCardValidation) {
+          purchaseBody.customerName = activeSmartCardValidation.customerName;
         }
         // Send exact package price in NGN
-        const selectedPackageObj = cablePackages.find(p => p.code === selectedPackage);
+        const selectedPackageObj = activeCablePackages.find(p => p.code === activeSelectedPackage);
         if (selectedPackageObj) {
           purchaseBody.serviceAmount = parseFloat(selectedPackageObj.price); // Exact NGN price from package
         }
       }
 
-      if (selectedCategory === "gaming" && gamingValidation) {
-        purchaseBody.customerId = gamingValidation.customerId;
+      if (categoryId === "gaming" && activeGamingValidation) {
+        purchaseBody.customerId = activeGamingValidation.customerId;
         // PayBeta may return empty customerName; server/payment processor fall back for purchase
         purchaseBody.customerName =
-          gamingValidation.customerName.trim() || gamingValidation.customerId;
-        purchaseBody.minimumAmount = gamingValidation.minimumAmount;
+          activeGamingValidation.customerName.trim() || activeGamingValidation.customerId;
+        purchaseBody.minimumAmount = activeGamingValidation.minimumAmount;
       }
 
       const purchaseResponse = await fetch(purchaseEndpoint, {
@@ -1729,8 +1750,8 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
       const purchaseResult = await purchaseResponse.json();
 
       if (purchaseResponse.ok && purchaseResult.success) {
-        const categoryName = UTILITY_CATEGORIES.find(cat => cat.id === selectedCategory)?.name || 'Service';
-        const recipient = selectedCategory === "electricity"
+        const categoryName = UTILITY_CATEGORIES.find(cat => cat.id === categoryId)?.name || 'Service';
+        const recipient = categoryId === "electricity"
           ? data.phoneNumber ?? "" // Meter number
           : data.phoneNumber ?? ""; // Phone number
 
@@ -1750,7 +1771,7 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
         }
 
         // Store receipt data for electricity (contains token and unit)
-        if (selectedCategory === "electricity" && purchaseResult.transaction) {
+        if (categoryId === "electricity" && purchaseResult.transaction) {
           // Extract receipt data from API response (from PayBeta directly)
           const receiptData = {
             reference: purchaseResult.transaction.paybetaReference || "",
@@ -1764,9 +1785,9 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
             transactionId: purchaseResult.transaction.paybetaTransactionId || "",
             category: categoryName,
             recipient: recipient || "",
-            customerName: meterValidation?.customerName,
-            customerAddress: meterValidation?.customerAddress,
-            meterType: meterType === "prepaid" ? "Prepaid" : "Postpaid",
+            customerName: activeMeterValidation?.customerName,
+            customerAddress: activeMeterValidation?.customerAddress,
+            meterType: activeMeterType === "prepaid" ? "Prepaid" : "Postpaid",
             meterNumber: data.phoneNumber ?? "", // Meter number
           };
           setReceipt(receiptData);
@@ -1798,7 +1819,7 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
         // Reset form
         resetForm();
       } else {
-        const categoryName = UTILITY_CATEGORIES.find(cat => cat.id === selectedCategory)?.name || 'Service';
+        const categoryName = UTILITY_CATEGORIES.find(cat => cat.id === categoryId)?.name || 'Service';
         throw new Error(purchaseResult.error || `Failed to purchase ${categoryName.toLowerCase()}`);
       }
     } catch (error: any) {
@@ -1808,10 +1829,388 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
         description: error.message || "Failed to process transaction",
         variant: "destructive",
       });
+      if (agentPaymentRef.current) {
+        agentPaymentRef.current = false;
+        throw error;
+      }
     } finally {
       setIsProcessing(false);
     }
   };
+
+  const { registerBillPayment, registerBillPrefill } = useAgentBillPay();
+  const onSubmitRef = useRef(onSubmit);
+  const agentPaymentRef = useRef(false);
+  const agentPaymentSuppressEffectsRef = useRef(false);
+  const agentPaymentSnapshotRef = useRef<{
+    activeCategory: UtilityBillCategory;
+    providers: Array<AirtimeProvider & { service: AirtimeService | DataBundleService | string }>;
+    meterValidation: typeof meterValidation;
+    gamingValidation: typeof gamingValidation;
+    smartCardValidation: typeof smartCardValidation;
+    selectedBundle: string;
+    bundles: DataBundlePackage[];
+    selectedPackage: string;
+    cablePackages: DataBundlePackage[];
+    meterType: "prepaid" | "postpaid";
+  } | null>(null);
+  onSubmitRef.current = onSubmit;
+
+  useEffect(() => {
+    const prefillFromAgent = async (intent: AgentBillIntent) => {
+      if (intent.category !== "data_bundle") return;
+
+      let rate = exchangeRate;
+      if (!rate) {
+        const response = await fetch("/api/exchange-rate");
+        if (!response.ok) return;
+        rate = await response.json();
+        setExchangeRate(rate);
+      }
+      if (!rate) return;
+
+      const token = selectedToken || "USDC";
+      const ngnRate = token === "USDC" ? rate.usdcToNgn : rate.usdtToNgn;
+
+      const providersRes = await fetch("/api/providers?category=data_bundle");
+      const providersPayload = await providersRes.json();
+      const processedProviders = (providersPayload.data ?? [])
+        .filter((p: { status?: boolean; slug?: string }) => p.status !== false && p.slug)
+        .map((p: { slug: string; name?: string }) => ({
+          ...p,
+          service: p.slug.replace(/-/g, "_") as DataBundleService,
+        }));
+
+      const bundleRes = await fetch(`/api/data-bundle/list?service=${intent.service}`);
+      const bundlePayload = await bundleRes.json();
+      let bundleList: DataBundlePackage[] = bundlePayload.data?.packages ?? [];
+      if (!bundleList.some((b) => b.code === intent.bundleCode)) {
+        bundleList = [
+          {
+            code: intent.bundleCode,
+            description: intent.bundleDescription,
+            price: String(intent.amountNgn),
+          },
+          ...bundleList,
+        ];
+      }
+
+      const tokenAmt = applyRateAdjustment(intent.amountNgn / ngnRate);
+
+      flushSync(() => {
+        agentPaymentSuppressEffectsRef.current = true;
+        setSelectedCategory("data_bundle");
+        setProviders(processedProviders);
+        setBundles(bundleList);
+        setSelectedBundle(intent.bundleCode);
+        setValue("token", token);
+        setValue("service", intent.service);
+        setValue("phoneNumber", intent.phoneNumber);
+        setValue("bundleCode", intent.bundleCode);
+        setValue("amount", tokenAmt.toFixed(8));
+        setNgnAmount(intent.amountNgn);
+        setCalculatedTokenAmount(null);
+      });
+
+      window.setTimeout(() => {
+        agentPaymentSuppressEffectsRef.current = false;
+      }, 100);
+    };
+
+    const payFromAgent = async (intent: AgentBillIntent) => {
+      agentPaymentSnapshotRef.current = null;
+
+      const token = selectedToken || "USDC";
+      setValue("token", token);
+
+      let rate = exchangeRate;
+      if (!rate) {
+        const response = await fetch("/api/exchange-rate");
+        if (!response.ok) {
+          throw new Error("Failed to load exchange rate");
+        }
+        rate = await response.json();
+        setExchangeRate(rate);
+      }
+
+      if (!rate) {
+        throw new Error("Failed to load exchange rate");
+      }
+
+      const ngnRate = token === "USDC" ? rate.usdcToNgn : rate.usdtToNgn;
+
+      const walletAddress = user ? getWalletAddressFromPrivyUser(user) : null;
+      if (!walletAddress) {
+        throw new Error("Connect a wallet before paying from the assistant.");
+      }
+
+      const checkBalance = (tokenAmt: number) => {
+        const balance =
+          paymentOption === "external"
+            ? injectedBalances[token as SupportedToken]
+            : privyBalances[token as SupportedToken];
+        const availableBalance = balance ? parseFloat(balance.formatted) : 0;
+        if (tokenAmt > availableBalance) {
+          throw new Error(
+            `Insufficient balance. You have ${availableBalance.toFixed(4)} ${token}, but need about ${tokenAmt.toFixed(4)} ${token}.`,
+          );
+        }
+      };
+
+      const runSubmit = async (
+        fields: ("amount" | "phoneNumber" | "service" | "bundleCode")[],
+      ) => {
+        await trigger(fields);
+        agentPaymentRef.current = true;
+        await new Promise<void>((resolve, reject) => {
+          handleSubmit(
+            async (data) => {
+              try {
+                await onSubmitRef.current(data);
+                agentPaymentRef.current = false;
+                agentPaymentSnapshotRef.current = null;
+                resolve();
+              } catch (error) {
+                agentPaymentRef.current = false;
+                agentPaymentSnapshotRef.current = null;
+                reject(error);
+              }
+            },
+            () => {
+              agentPaymentRef.current = false;
+              agentPaymentSnapshotRef.current = null;
+              reject(new Error("Please check the payment details and try again."));
+            },
+          )();
+        });
+      };
+
+      switch (intent.category) {
+        case "airtime": {
+          setSelectedCategory("airtime");
+          setValue("service", intent.service);
+          setValue("phoneNumber", intent.phoneNumber);
+          setValue("amount", String(intent.amountNgn));
+
+          const tokenAmt = applyRateAdjustment(intent.amountNgn / ngnRate);
+          setNgnAmount(intent.amountNgn);
+          setCalculatedTokenAmount(tokenAmt);
+          checkBalance(tokenAmt);
+          await runSubmit(["amount", "phoneNumber", "service"]);
+          break;
+        }
+        case "electricity": {
+          setSelectedCategory("electricity");
+          setMeterValidation(null);
+          setMeterType(intent.meterType);
+          setValue("service", intent.service);
+          setValue("phoneNumber", intent.meterNumber);
+          setValue("amount", String(intent.amountNgn));
+
+          const tokenAmt = applyRateAdjustment(intent.amountNgn / ngnRate);
+          setNgnAmount(intent.amountNgn);
+          setCalculatedTokenAmount(tokenAmt);
+          checkBalance(tokenAmt);
+
+          const meterValidationData = {
+            customerName: intent.customerName,
+            customerAddress: intent.customerAddress,
+            meterNumber: intent.meterNumber,
+            meterType: intent.meterType,
+          };
+          setMeterValidation(meterValidationData);
+          agentPaymentSnapshotRef.current = {
+            activeCategory: "electricity",
+            providers: [],
+            meterValidation: meterValidationData,
+            gamingValidation: null,
+            smartCardValidation: null,
+            selectedBundle: "",
+            bundles: [],
+            selectedPackage: "",
+            cablePackages: [],
+            meterType: intent.meterType,
+          };
+          await runSubmit(["amount", "phoneNumber", "service"]);
+          break;
+        }
+        case "gaming": {
+          setSelectedCategory("gaming");
+          setGamingValidation(null);
+          setValue("service", intent.service);
+          setValue("phoneNumber", intent.customerId);
+          setValue("amount", String(intent.amountNgn));
+
+          const tokenAmt = applyRateAdjustment(intent.amountNgn / ngnRate);
+          setNgnAmount(intent.amountNgn);
+          setCalculatedTokenAmount(tokenAmt);
+          checkBalance(tokenAmt);
+
+          const gamingValidationData = {
+            customerName: intent.customerName,
+            customerId: intent.customerId,
+            service: intent.service,
+            minimumAmount: intent.minimumAmount,
+          };
+          setGamingValidation(gamingValidationData);
+          agentPaymentSnapshotRef.current = {
+            activeCategory: "gaming",
+            providers: [],
+            meterValidation: null,
+            gamingValidation: gamingValidationData,
+            smartCardValidation: null,
+            selectedBundle: "",
+            bundles: [],
+            selectedPackage: "",
+            cablePackages: [],
+            meterType: "prepaid",
+          };
+          await runSubmit(["amount", "phoneNumber", "service"]);
+          break;
+        }
+        case "data_bundle": {
+          agentPaymentSuppressEffectsRef.current = true;
+          try {
+            const providersRes = await fetch("/api/providers?category=data_bundle");
+            const providersPayload = await providersRes.json();
+            const processedProviders = (providersPayload.data ?? [])
+              .filter((p: { status?: boolean; slug?: string }) => p.status !== false && p.slug)
+              .map((p: { slug: string; name?: string }) => ({
+                ...p,
+                service: p.slug.replace(/-/g, "_") as DataBundleService,
+              }));
+
+            const bundleRes = await fetch(`/api/data-bundle/list?service=${intent.service}`);
+            const bundlePayload = await bundleRes.json();
+            let bundleList: DataBundlePackage[] = bundlePayload.data?.packages ?? [];
+            if (!bundleList.some((b) => b.code === intent.bundleCode)) {
+              bundleList = [
+                {
+                  code: intent.bundleCode,
+                  description: intent.bundleDescription,
+                  price: String(intent.amountNgn),
+                },
+                ...bundleList,
+              ];
+            }
+
+            const tokenAmt = applyRateAdjustment(intent.amountNgn / ngnRate);
+            checkBalance(tokenAmt);
+
+            flushSync(() => {
+              setSelectedCategory("data_bundle");
+              setProviders(processedProviders);
+              setBundles(bundleList);
+              setSelectedBundle(intent.bundleCode);
+              setValue("token", token);
+              setValue("service", intent.service);
+              setValue("phoneNumber", intent.phoneNumber);
+              setValue("bundleCode", intent.bundleCode);
+              setValue("amount", tokenAmt.toFixed(8));
+              setNgnAmount(intent.amountNgn);
+              setCalculatedTokenAmount(null);
+            });
+
+            const formData: AirtimeFormData = {
+              token,
+              service: intent.service,
+              phoneNumber: intent.phoneNumber,
+              amount: tokenAmt.toFixed(8),
+              bundleCode: intent.bundleCode,
+            };
+
+            agentPaymentRef.current = true;
+            agentPaymentSnapshotRef.current = {
+              activeCategory: "data_bundle",
+              providers: processedProviders,
+              meterValidation: null,
+              gamingValidation: null,
+              smartCardValidation: null,
+              selectedBundle: intent.bundleCode,
+              bundles: bundleList,
+              selectedPackage: "",
+              cablePackages: [],
+              meterType: "prepaid",
+            };
+
+            await onSubmitRef.current(formData);
+          } finally {
+            agentPaymentRef.current = false;
+            agentPaymentSnapshotRef.current = null;
+            agentPaymentSuppressEffectsRef.current = false;
+          }
+          break;
+        }
+        case "cable_tv": {
+          setSelectedCategory("cable_tv");
+          setValue("service", intent.service);
+          setValue("phoneNumber", intent.smartCardNumber);
+          setSelectedPackage(intent.packageCode);
+
+          const packageList: DataBundlePackage[] = [
+            {
+              code: intent.packageCode,
+              description: intent.packageDescription,
+              price: String(intent.amountNgn),
+            },
+          ];
+          setCablePackages(packageList);
+
+          const smartCardData = {
+            customerName: intent.customerName,
+            smartCardNumber: intent.smartCardNumber,
+            service: intent.service,
+          };
+          setSmartCardValidation(smartCardData);
+
+          const tokenAmt = applyRateAdjustment(intent.amountNgn / ngnRate);
+          setValue("amount", tokenAmt.toFixed(8));
+          setNgnAmount(intent.amountNgn);
+          setCalculatedTokenAmount(null);
+          checkBalance(tokenAmt);
+
+          agentPaymentSnapshotRef.current = {
+            activeCategory: "cable_tv",
+            providers: [],
+            meterValidation: null,
+            gamingValidation: null,
+            smartCardValidation: smartCardData,
+            selectedBundle: "",
+            bundles: [],
+            selectedPackage: intent.packageCode,
+            cablePackages: packageList,
+            meterType: "prepaid",
+          };
+          await runSubmit(["amount", "phoneNumber", "service"]);
+          break;
+        }
+        default: {
+          const _exhaustive: never = intent;
+          throw new Error(`Unsupported bill category: ${(_exhaustive as AgentBillIntent).category}`);
+        }
+      }
+    };
+
+    registerBillPayment(payFromAgent);
+    registerBillPrefill(prefillFromAgent);
+    return () => {
+      registerBillPayment(null);
+      registerBillPrefill(null);
+    };
+  }, [
+    applyRateAdjustment,
+    exchangeRate,
+    handleSubmit,
+    registerBillPayment,
+    registerBillPrefill,
+    selectedToken,
+    setValue,
+    trigger,
+    user,
+    paymentOption,
+    injectedBalances,
+    privyBalances,
+  ]);
 
   const currentRate = exchangeRate
     ? selectedToken === "USDC"
@@ -2497,7 +2896,7 @@ export function AirtimeSwapCard({ initialCategory = "airtime" }: AirtimeSwapCard
                   <div className="p-3 bg-green-50 border border-green-200 rounded-2xl">
                     <p className="text-sm font-semibold text-green-900 mb-1">Customer ID validated</p>
                     {gamingValidation.customerName &&
-                    gamingValidation.customerName !== String(gamingValidation.customerId ?? "").trim() ? (
+                      gamingValidation.customerName !== String(gamingValidation.customerId ?? "").trim() ? (
                       <p className="text-xs text-green-700">Name: {gamingValidation.customerName}</p>
                     ) : null}
                     <p className="text-xs text-green-700">Customer ID: {gamingValidation.customerId}</p>

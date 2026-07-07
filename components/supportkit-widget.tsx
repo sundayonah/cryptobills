@@ -10,6 +10,13 @@ export default function SupportKitProvider() {
   useEffect(() => {
     let cancelled = false;
 
+    if (!config.supportkit_enabled || !config.supportkit_api_key) {
+      void import('supportkit-sdk').then(({ SupportKit }) => {
+        SupportKit.getInstance()?.destroy();
+      });
+      return;
+    }
+
     if (!ready) {
       return;
     }
