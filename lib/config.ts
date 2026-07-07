@@ -23,7 +23,17 @@ const config: Config = {
     payment_recipient_address: process.env.NEXT_PUBLIC_PAYMENT_RECIPIENT_ADDRESS || '',
     alchemy_api_key: process.env.ALCHEMY_API_KEY || '',
     supportkit_api_key: process.env.NEXT_PUBLIC_SUPPORT_KIT_API_KEY || '',
+    supportkit_enabled: process.env.NEXT_PUBLIC_SUPPORTKIT_ENABLED === 'true',
     floating_logos_enabled: process.env.NEXT_PUBLIC_FLOATING_LOGOS_ENABLED !== 'false',
+
+    qwencloud_api_key: process.env.QWENCLOUD_API_KEY || '',
+    qwencloud_model: process.env.QWENCLOUD_MODEL || 'qwen-plus-latest',
+    qwencloud_base_url: process.env.QWENCLOUD_BASE_URL || '',
+    qwencloud_workspace_id: process.env.QWENCLOUD_WORKSPACE_ID || '',
+    qwencloud_region: process.env.QWENCLOUD_REGION || 'ap-southeast-1',
+    qwencloud_asr_model: process.env.QWENCLOUD_ASR_MODEL || 'qwen3-asr-flash',
+    qwen_agent_enabled: process.env.NEXT_PUBLIC_QWEN_AGENT_ENABLED === 'true',
+    qwen_voice_enabled: process.env.NEXT_PUBLIC_QWEN_VOICE_ENABLED === 'true',
 }
 
 export default config;

@@ -258,3 +258,54 @@ export async function fetchPaycrestRateV2(params: FetchPaycrestRateV2Params): Pr
 
   return rate;
 }
+
+const agentRateLimitBuckets = new Map<string, { count: number; resetAt: number }>();
+
+function getClientIp(request: Request): string {
+  const forwarded = request.headers.get('x-forwarded-for');
+  if (forwarded) {
+    return forwarded.split(',')[0]?.trim() || 'unknown';
+  }
+  return request.headers.get('x-real-ip')?.trim() || 'unknown';
+}
+
+export function checkAgentRateLimit(
+  request: Request,
+  options: { limit: number; windowMs: number },
+): { allowed: boolean; retryAfterSec?: number } {
+  const key = getClientIp(request);
+  const now = Date.now();
+  const bucket = agentRateLimitBuckets.get(key);
+
+  if (!bucket || now >= bucket.resetAt) {
+    agentRateLimitBuckets.set(key, { count: 1, resetAt: now + options.windowMs });
+    return { allowed: true };
+  }
+
+  if (bucket.count >= options.limit) {
+    return { allowed: false, retryAfterSec: Math.max(1, Math.ceil((bucket.resetAt - now) / 1000)) };
+  }
+
+  bucket.count += 1;
+  return { allowed: true };
+}
+
+export async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init: RequestInit & { timeoutMs?: number } = {},
+): Promise<Response> {
+  const { timeoutMs = 60_000, ...fetchInit } = init;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(input, { ...fetchInit, signal: controller.signal });
+  } catch (error: unknown) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error(`Request timed out after ${timeoutMs}ms`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
