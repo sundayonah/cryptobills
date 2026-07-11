@@ -9,7 +9,9 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { useVoiceRecorder } from "@/hooks/use-voice-recorder";
 import { useAgentBillPay } from "@/contexts/agent-bill-pay-context";
+import { FabTooltip } from "@/components/fab-tooltip";
 import config from "@/lib/config";
+import { FAB_BOTTOM_QWEN_SOLO, FAB_BOTTOM_QWEN_STACKED } from "@/lib/fab-layout";
 import { hasValidNigerianPhone } from "@/lib/voice-transcript-normalize";
 import type { AgentBillIntent, AgentChatMessage } from "@/types";
 
@@ -40,6 +42,11 @@ export function QwenAgentChat() {
   const messagesRef = useRef<ChatEntry[]>([STARTER_MESSAGE]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const voiceEnabled = config.qwen_voice_enabled;
+  const stackWithSupport = config.supportkit_enabled && authenticated;
+  const fabBottom = stackWithSupport ? FAB_BOTTOM_QWEN_STACKED : FAB_BOTTOM_QWEN_SOLO;
+  const fabTooltipLabel = voiceEnabled
+    ? 'Bill Assistant — say "Hey Qwen" or tap to open'
+    : "Bill Assistant — tap to pay bills with AI";
 
   useEffect(() => {
     messagesRef.current = messages;
@@ -207,25 +214,34 @@ export function QwenAgentChat() {
   return (
     <>
       {!open && (
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          className="fixed bottom-16 right-5 z-40 flex h-14 w-14 items-center justify-center overflow-hidden rounded-full bg-black p-2.5 shadow-lg ring-2 ring-gray-200 transition hover:ring-violet-300"
-          aria-label="Open Qwen bill assistant"
-          title={voiceEnabled ? 'Say "Hey Qwen" or tap to open' : "Open Qwen bill assistant"}
+        <FabTooltip
+          label={fabTooltipLabel}
+          className="fixed right-5 z-40"
+          style={{ bottom: fabBottom }}
         >
-          <Image
-            src={QWEN_LOGO}
-            alt="Qwen"
-            width={56}
-            height={56}
-            className="h-full w-full object-contain object-center"
-          />
-        </button>
+          <button
+            type="button"
+            data-qwen-fab
+            onClick={() => setOpen(true)}
+            className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-full bg-black p-2.5 shadow-lg ring-2 ring-gray-200 transition hover:ring-violet-300"
+            aria-label="Open Qwen bill assistant"
+          >
+            <Image
+              src={QWEN_LOGO}
+              alt="Qwen"
+              width={56}
+              height={56}
+              className="h-full w-full object-contain object-center"
+            />
+          </button>
+        </FabTooltip>
       )}
 
       {open && (
-        <div className="fixed bottom-16 right-5 z-40 flex h-[min(560px,calc(100dvh-6rem))] w-[min(380px,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl">
+        <div
+          className="fixed right-5 z-40 flex h-[min(560px,calc(100dvh-6rem))] w-[min(380px,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl"
+          style={{ bottom: fabBottom }}
+        >
           <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
             <div className="flex items-center gap-2">
               <div className="relative flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-black p-1">
