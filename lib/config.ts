@@ -25,6 +25,7 @@ const config: Config = {
     supportkit_api_key: process.env.NEXT_PUBLIC_SUPPORT_KIT_API_KEY || '',
     supportkit_enabled: process.env.NEXT_PUBLIC_SUPPORTKIT_ENABLED === 'true',
     floating_logos_enabled: process.env.NEXT_PUBLIC_FLOATING_LOGOS_ENABLED !== 'false',
+    deposit_enabled: process.env.NEXT_PUBLIC_DEPOSIT_ENABLED === 'true',
 
     qwencloud_api_key: process.env.QWENCLOUD_API_KEY || '',
     qwencloud_model: process.env.QWENCLOUD_MODEL || 'qwen-plus-latest',

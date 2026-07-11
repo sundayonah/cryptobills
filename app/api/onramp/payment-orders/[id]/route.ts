@@ -22,6 +22,10 @@ export async function GET(
   _request: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  if (!config.deposit_enabled) {
+    return NextResponse.json({ success: false, error: 'Deposit is disabled' }, { status: 404 });
+  }
+
   try {
     ensureOnrampConfig();
 

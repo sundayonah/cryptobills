@@ -36,6 +36,10 @@ function ensureOnrampConfig() {
 }
 
 export async function POST(request: NextRequest) {
+  if (!config.deposit_enabled) {
+    return NextResponse.json({ success: false, error: 'Deposit is disabled' }, { status: 404 });
+  }
+
   try {
     ensureOnrampConfig();
 

@@ -419,6 +419,8 @@ export interface Config {
     /** Client-visible feature flag for SupportKit support chat widget */
     supportkit_enabled: boolean;
     floating_logos_enabled: boolean;
+    /** Client-visible feature flag for fiat deposit (PayCrest onramp) */
+    deposit_enabled: boolean;
     /** Server-only Qwen Cloud credentials */
     qwencloud_api_key: string;
     qwencloud_model: string;

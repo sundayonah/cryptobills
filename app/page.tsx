@@ -15,6 +15,7 @@ import config from "@/lib/config";
 
 export default function Home() {
   const { ready } = usePrivy();
+  const depositEnabled = config.deposit_enabled;
   const [activeView, setActiveView] = useState<"bills" | "deposit">("bills");
 
   return (
@@ -39,48 +40,52 @@ export default function Home() {
             >
               <h1 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-bold mb-4">
                 <span className="text-gray-900">
-                  {activeView === "bills" ? "Pay utility bills" : "Deposit fiat"}
+                  {!depositEnabled || activeView === "bills" ? "Pay utility bills" : "Deposit fiat"}
                 </span>
                 <br />
                 <span className="text-gray-600 italic font-serif">
-                  {activeView === "bills" ? "with stablecoins" : "to receive stablecoins"}
+                  {!depositEnabled || activeView === "bills"
+                    ? "with stablecoins"
+                    : "to receive stablecoins"}
                 </span>
               </h1>
             </motion.div>
           )}
 
           <div className="max-w-lg mx-auto space-y-4">
-            {!ready ? (
-              <ViewToggleSkeleton />
-            ) : (
-              <div className="grid grid-cols-2 gap-2 p-1 bg-gray-100 rounded-2xl">
-                <button
-                  type="button"
-                  onClick={() => setActiveView("bills")}
-                  className={`h-10 rounded-xl text-sm font-medium transition-colors ${activeView === "bills"
-                      ? "bg-white text-gray-900 shadow-sm"
-                      : "text-gray-600 hover:text-gray-800"
-                    }`}
-                >
-                  Pay Bilz
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveView("deposit")}
-                  className={`h-10 rounded-xl text-sm font-medium transition-colors ${activeView === "deposit"
-                      ? "bg-white text-gray-900 shadow-sm"
-                      : "text-gray-600 hover:text-gray-800"
-                    }`}
-                >
-                  Deposit
-                </button>
-              </div>
+            {depositEnabled && (
+              !ready ? (
+                <ViewToggleSkeleton />
+              ) : (
+                <div className="grid grid-cols-2 gap-2 p-1 bg-gray-100 rounded-2xl">
+                  <button
+                    type="button"
+                    onClick={() => setActiveView("bills")}
+                    className={`h-10 rounded-xl text-sm font-medium transition-colors ${activeView === "bills"
+                        ? "bg-white text-gray-900 shadow-sm"
+                        : "text-gray-600 hover:text-gray-800"
+                      }`}
+                  >
+                    Pay Bilz
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveView("deposit")}
+                    className={`h-10 rounded-xl text-sm font-medium transition-colors ${activeView === "deposit"
+                        ? "bg-white text-gray-900 shadow-sm"
+                        : "text-gray-600 hover:text-gray-800"
+                      }`}
+                  >
+                    Deposit
+                  </button>
+                </div>
+              )
             )}
 
-            <div className={activeView !== "bills" ? "hidden" : undefined}>
+            <div className={depositEnabled && activeView !== "bills" ? "hidden" : undefined}>
               <AirtimeSwapCard />
             </div>
-            {activeView === "deposit" ? <DepositFiatCard /> : null}
+            {depositEnabled && activeView === "deposit" ? <DepositFiatCard /> : null}
           </div>
         </main>
       </div>
